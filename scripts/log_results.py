@@ -8,15 +8,17 @@ Run this the morning after predictions were made (once games are final):
     python -m scripts.log_results 2026-06-11    # logs a specific date
 
 The results log grows over time at data/logs/ks_results_log.csv.
-Use it to validate the model: compare model_prob_book_line vs actual
-over rate, and check whether positive-edge plays are profitable.
+Use it to validate the model: compare model_prob_book_line (the model's
+probability for whichever side -- over or under -- was recommended, see
+book_side) vs the actual hit rate (hit_book_side), and check whether
+positive-edge plays are profitable.
 
 Quick calibration query once you have 100+ rows:
     import pandas as pd
     df = pd.read_csv('data/logs/ks_results_log.csv')
-    df = df[df['over_book_line'].isin([0, 1])]
+    df = df[df['hit_book_side'].isin([0, 1])]
     df['bucket'] = pd.cut(df['model_prob_book_line'], bins=[0,.4,.5,.6,.7,1.0])
-    print(df.groupby('bucket')[['model_prob_book_line','over_book_line']].agg(['mean','count']))
+    print(df.groupby('bucket')[['model_prob_book_line','hit_book_side']].agg(['mean','count']))
 """
 
 import os
@@ -44,12 +46,12 @@ LOG_COLUMNS = [
     'game_date',
     'pitcher_name', 'team', 'opp_team', 'home_team', 'away_team',
     'pred_k',
-    'has_line', 'book_line', 'best_book', 'best_odds', 'book_implied',
+    'has_line', 'book_line', 'book_side', 'best_book', 'best_odds', 'book_implied',
     'model_prob_book_line', 'edge_book',
-    'pp_line', 'model_prob_pp_line', 'edge_pp',
+    'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',
     'game_pk', 'pitcher',
     'actual_k',          # -1 = result not found
-    'over_book_line',    # 1 = went over, 0 = under, -1 = push, -2 = no line / missing
+    'hit_book_side',     # 1 = recommended side (book_side) hit, 0 = missed, -1 = push, -2 = no line / missing
 ]
 
 
@@ -147,8 +149,8 @@ def print_results_table(pred_df):
     show['edge_book'] = show['edge_book'].apply(
         lambda x: f'{float(x):+.1%}' if pd.notna(x) and str(x) != 'nan' else 'N/A'
     )
-    show['result'] = show['over_book_line'].map({1: 'OVER', 0: 'UNDER', -1: 'PUSH', -2: '-'})
-    cols = ['pitcher_name', 'team', 'pred_k', 'actual_k', 'book_line', 'edge_book', 'result']
+    show['result'] = show['hit_book_side'].map({1: 'HIT', 0: 'MISS', -1: 'PUSH', -2: '-'})
+    cols = ['pitcher_name', 'team', 'pred_k', 'actual_k', 'book_side', 'book_line', 'edge_book', 'result']
     print(show[[c for c in cols if c in show.columns]].to_string(index=False))
 
 
@@ -171,7 +173,7 @@ def print_calibration_summary():
         print(f"  Keep logging daily -- this will fill in automatically.")
         return
 
-    booked = log[log['over_book_line'].isin([0, 1])].copy()
+    booked = log[log['hit_book_side'].isin([0, 1])].copy()
     if len(booked) >= 20:
         booked['bucket'] = pd.cut(
             booked['model_prob_book_line'],
@@ -181,8 +183,8 @@ def print_calibration_summary():
         cal = (
             booked.groupby('bucket', observed=True)
                   .agg(predicted=('model_prob_book_line', 'mean'),
-                       actual=('over_book_line', 'mean'),
-                       n=('over_book_line', 'count'))
+                       actual=('hit_book_side', 'mean'),
+                       n=('hit_book_side', 'count'))
                   .reset_index()
         )
         cal['predicted'] = cal['predicted'].map('{:.1%}'.format)
@@ -195,13 +197,13 @@ def print_calibration_summary():
 
     # Positive-edge plays specifically
     log['edge_num'] = pd.to_numeric(log['edge_book'], errors='coerce')
-    pos_edge = log[(log['has_line'] == 1) & (log['edge_num'] > 0) & (log['over_book_line'].isin([0, 1]))]
+    pos_edge = log[(log['has_line'] == 1) & (log['edge_num'] > 0) & (log['hit_book_side'].isin([0, 1]))]
     if len(pos_edge) >= 5:
-        actual_rate = pos_edge['over_book_line'].mean()
+        actual_rate = pos_edge['hit_book_side'].mean()
         pred_rate   = pos_edge['model_prob_book_line'].mean()
         print(f"\n  Positive-edge plays: {len(pos_edge)} flagged")
-        print(f"    Predicted avg P(over): {pred_rate:.1%}")
-        print(f"    Actual over rate:      {actual_rate:.1%}")
+        print(f"    Predicted avg P(side): {pred_rate:.1%}")
+        print(f"    Actual hit rate:       {actual_rate:.1%}")
         if actual_rate >= pred_rate * 0.8:
             print(f"    Model is tracking well on positive-edge picks.")
         else:
@@ -369,14 +371,16 @@ def run(date_str=None, force_db=False):
     # -1 means the pitcher's result wasn't in the boxscore (didn't pitch, etc.)
     pred_df['actual_k'] = pred_df['actual_k'].fillna(-1).astype(int)
 
-    def _over_book_line(row):
-        if row['actual_k'] < 0 or row['has_line'] != 1 or pd.isna(row['book_line']):
+    def _hit_book_side(row):
+        if row['actual_k'] < 0 or row['has_line'] != 1 or pd.isna(row['book_line']) or pd.isna(row.get('book_side')):
             return -2
         if row['actual_k'] == row['book_line']:
             return -1
+        if str(row['book_side']).lower() == 'under':
+            return 1 if row['actual_k'] < row['book_line'] else 0
         return 1 if row['actual_k'] > row['book_line'] else 0
 
-    pred_df['over_book_line'] = pred_df.apply(_over_book_line, axis=1)
+    pred_df['hit_book_side'] = pred_df.apply(_hit_book_side, axis=1)
     pred_df['log_date'] = date_cls.today().isoformat()
 
     # Summary counts

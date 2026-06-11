@@ -28,12 +28,14 @@ export type Row = {
   p_over_8_5: number | null;
   has_line: boolean;
   book_line: number | null;
+  book_side: string | null;
   best_book: string | null;
   best_odds: number | null;
   book_implied: number | null;
   model_prob_book_line: number | null;
   edge_book: number | null;
   pp_line: number | null;
+  pp_side: string | null;
   model_prob_pp_line: number | null;
   edge_pp: number | null;
   rest_days: number | null;
@@ -720,32 +722,41 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
               const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
 
-              const rawInput  = customLines[id] ?? '';
-              const customNum = parseLineInput(rawInput);
-              const myProb    = customNum != null ? probOver(customNum, row.pred_k) : null;
-              const myEdge    = myProb != null ? myProb - 0.5 : null;
+              const rawInput   = customLines[id] ?? '';
+              const customNum  = parseLineInput(rawInput);
+              const myProbOver = customNum != null ? probOver(customNum, row.pred_k) : null;
+              const mySide     = myProbOver != null ? (myProbOver >= 0.5 ? 'over' : 'under') : null;
+              const myProb     = myProbOver != null
+                ? (mySide === 'over' ? myProbOver : 1 - myProbOver)
+                : null;
+              const myEdge     = myProb != null ? myProb - 0.5 : null;
               const myEdgeDisp = edgeDisplay(myEdge, customNum != null);
 
               // TRACK button: book line > PP line > custom MY LINE, default -110
               let trackLine: number;
               let trackOdds: number;
               let trackEdge: number | null;
+              let trackSide: string;
               if (row.has_line && row.book_line != null) {
                 trackLine = row.book_line;
                 trackOdds = row.best_odds ?? -110;
                 trackEdge = row.edge_book;
+                trackSide = row.book_side ?? 'over';
               } else if (row.pp_line != null) {
                 trackLine = row.pp_line;
                 trackOdds = -110;
                 trackEdge = row.edge_pp;
+                trackSide = row.pp_side ?? 'over';
               } else if (customNum != null) {
                 trackLine = customNum;
                 trackOdds = -110;
                 trackEdge = myEdge;
+                trackSide = mySide ?? 'over';
               } else {
                 trackLine = Math.floor(row.pred_k) + 0.5;
                 trackOdds = -110;
                 trackEdge = null;
+                trackSide = 'over';
               }
 
               return (
@@ -802,7 +813,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     <td style={{ padding: '9px 12px', textAlign: 'right' }}>
                       {row.has_line ? (
                         <>
-                          <span style={{ color: 'var(--ev-text)' }}>{row.book_line}</span>
+                          <span style={{ color: 'var(--ev-text)' }}>
+                            {row.book_side === 'under' ? 'U' : 'O'} {row.book_line}
+                          </span>
                           <div style={{ fontSize: '10px', color: 'var(--ev-blue)', marginTop: '2px' }}>
                             {fmtOdds(row.best_odds)}
                             {row.best_book && (
@@ -824,7 +837,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
                     {/* PP LINE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)' }}>
-                      {row.pp_line ?? '—'}
+                      {row.pp_line != null
+                        ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}`
+                        : '—'}
                     </td>
 
                     {/* PP EDGE */}
@@ -859,7 +874,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
                     {/* MY EDGE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
-                      {myEdgeDisp.text}
+                      {customNum != null && mySide && myEdgeDisp.text !== '—'
+                        ? `${mySide === 'under' ? 'U' : 'O'} ${myEdgeDisp.text}`
+                        : myEdgeDisp.text}
                     </td>
 
                     {/* K/9 L10 */}
@@ -901,7 +918,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         oppTeam={row.opp_team}
                         predK={row.pred_k}
                         line={trackLine}
-                        side="over"
+                        side={trackSide}
                         odds={trackOdds}
                         edge={trackEdge}
                       />

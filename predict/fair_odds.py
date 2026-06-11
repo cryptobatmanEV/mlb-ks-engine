@@ -3,8 +3,15 @@ Pull sportsbook strikeout-prop lines (the-odds-api.com, market=pitcher_strikeout
 and PrizePicks pitcher-strikeout projections, match them to today's model
 projections (data/predictions/ks_predictions_{date}.csv), and compute edge.
 
-  edge_book = model_prob_over_book_line - book_implied_prob
-  edge_pp   = model_prob_over_pp_line   - 0.50   (PrizePicks pick'em, no vig quoted)
+For every line, the model computes BOTH P(over) and P(under) (P(under) =
+1 - P(over), exact for X.5 lines) and picks whichever side has the larger
+edge vs. the market's implied probability:
+
+  edge_book = model_prob_for_book_side - book_implied_prob_for_that_side
+  edge_pp   = model_prob_for_pp_side   - 0.543  (PrizePicks standard pick'em
+                                                   is -119, implied = 119/219)
+
+`book_side` / `pp_side` ('over' / 'under') record which side was chosen.
 
 Usage:
     python -m predict.fair_odds              # today
@@ -251,8 +258,12 @@ def fetch_pitcher_strikeout_props(event_ids):
 def join_sportsbook_odds(pred_df, odds_df):
     """
     For each pitcher, pick the consensus betting line (most common point
-    among 'Over' outcomes), find the best (highest) Over price across books
-    at that line, and compute edge = model_prob_over_line - book_implied.
+    among 'Over' outcomes), find the best (highest) price for both Over and
+    Under at that line, compute the model's P(over)/P(under), and choose
+    whichever side has the larger edge vs. that side's book-implied
+    probability. `book_side` records which side ('over'/'under') was chosen,
+    and `best_odds`/`best_book`/`book_implied`/`model_prob_book_line`/
+    `edge_book` describe that chosen side.
     """
     df = pred_df.copy()
     df['name_norm'] = df['pitcher_name'].apply(norm_name)
@@ -260,6 +271,7 @@ def join_sportsbook_odds(pred_df, odds_df):
     if odds_df.empty:
         df['has_line'] = 0
         df['book_line'] = None
+        df['book_side'] = None
         df['best_book'] = None
         df['best_odds'] = None
         df['book_implied'] = None
@@ -269,7 +281,7 @@ def join_sportsbook_odds(pred_df, odds_df):
 
     overs = odds_df[odds_df['side'] == 'Over']
 
-    # Consensus line per player = most frequently quoted point
+    # Consensus line per player = most frequently quoted Over point
     consensus = (overs.groupby(['name_norm', 'point']).size()
                   .reset_index(name='n')
                   .sort_values(['name_norm', 'n'], ascending=[True, False])
@@ -277,23 +289,51 @@ def join_sportsbook_odds(pred_df, odds_df):
                   .reset_index()[['name_norm', 'point']]
                   .rename(columns={'point': 'book_line'}))
 
-    # Best (highest) Over price at the consensus line
-    best = (overs.merge(consensus, left_on=['name_norm', 'point'],
-                         right_on=['name_norm', 'book_line'])
-            .sort_values('odds_american', ascending=False)
-            .groupby('name_norm', as_index=False).first()
-            [['name_norm', 'book_line', 'bookmaker', 'odds_american', 'implied']]
-            .rename(columns={'bookmaker': 'best_book', 'odds_american': 'best_odds',
-                              'implied': 'book_implied'}))
+    def best_side(side_name):
+        """Best (highest) price for one side at each pitcher's consensus line."""
+        prefix = side_name.lower()
+        side_df = odds_df[odds_df['side'] == side_name]
+        return (side_df.merge(consensus, left_on=['name_norm', 'point'],
+                               right_on=['name_norm', 'book_line'])
+                .sort_values('odds_american', ascending=False)
+                .groupby('name_norm', as_index=False).first()
+                [['name_norm', 'bookmaker', 'odds_american', 'implied']]
+                .rename(columns={'bookmaker': f'{prefix}_book',
+                                  'odds_american': f'{prefix}_odds',
+                                  'implied': f'{prefix}_implied'}))
 
-    df = df.merge(best, on='name_norm', how='left').drop(columns=['name_norm'])
-    df['has_line'] = df['best_odds'].notna().astype(int)
-    df['model_prob_book_line'] = df.apply(
-        lambda r: model_prob_over(r['pred_k'], r['book_line']) if r['has_line'] else None,
-        axis=1,
-    )
-    df['edge_book'] = (df['model_prob_book_line'] - df['book_implied']).where(df['has_line'] == 1).round(4)
-    return df
+    df = df.merge(consensus, on='name_norm', how='left')
+    df = df.merge(best_side('Over'), on='name_norm', how='left')
+    df = df.merge(best_side('Under'), on='name_norm', how='left').drop(columns=['name_norm'])
+
+    def _pick_side(r):
+        if pd.isna(r['book_line']):
+            return pd.Series([None, None, None, None, None, None])
+
+        p_over = model_prob_over(r['pred_k'], r['book_line'])
+        p_under = 1.0 - p_over
+
+        edge_over = (p_over - r['over_implied']) if pd.notna(r['over_implied']) else None
+        edge_under = (p_under - r['under_implied']) if pd.notna(r['under_implied']) else None
+
+        if edge_over is None and edge_under is None:
+            return pd.Series([None, None, None, None, None, None])
+
+        if edge_under is None or (edge_over is not None and edge_over >= edge_under):
+            return pd.Series(['over', p_over, r['over_implied'], round(edge_over, 4),
+                               r['over_book'], r['over_odds']])
+        return pd.Series(['under', p_under, r['under_implied'], round(edge_under, 4),
+                           r['under_book'], r['under_odds']])
+
+    picked = df.apply(_pick_side, axis=1)
+    picked.columns = ['book_side', 'model_prob_book_line', 'book_implied',
+                       'edge_book', 'best_book', 'best_odds']
+    df = pd.concat([df, picked], axis=1)
+    df['has_line'] = df['book_side'].notna().astype(int)
+
+    return df.drop(columns=['over_book', 'over_odds', 'over_implied',
+                             'under_book', 'under_odds', 'under_implied'],
+                    errors='ignore')
 
 
 # ── [4] PrizePicks projections ──────────────────────────────────────────────────
@@ -341,22 +381,37 @@ def fetch_prizepicks_strikeouts():
     return df
 
 
+PP_IMPLIED = 119.0 / 219.0  # PrizePicks standard pick'em pricing is -119 -> ~54.3%
+
+
 def join_prizepicks(pred_df, pp_df):
-    """Match PrizePicks lines onto predictions; edge vs a flat 50% (pick'em)."""
+    """
+    Match PrizePicks lines onto predictions. Picks whichever side (over/under)
+    the model favors and computes edge vs. PrizePicks' standard -119 pricing
+    (implied probability 119/219 ~= 54.3%) for that side.
+    """
     df = pred_df.copy()
     df['name_norm'] = df['pitcher_name'].apply(norm_name)
 
     if pp_df.empty:
         df['pp_line'] = None
+        df['pp_side'] = None
         df['model_prob_pp_line'] = None
         df['edge_pp'] = None
         return df.drop(columns=['name_norm'])
 
     df = df.merge(pp_df[['name_norm', 'pp_line']], on='name_norm', how='left').drop(columns=['name_norm'])
+    df['pp_side'] = None
+    df['model_prob_pp_line'] = None
+
     has_pp = df['pp_line'].notna()
-    df.loc[has_pp, 'model_prob_pp_line'] = df.loc[has_pp].apply(
-        lambda r: model_prob_over(r['pred_k'], r['pp_line']), axis=1)
-    df['edge_pp'] = (df['model_prob_pp_line'] - 0.50).where(has_pp).round(4)
+    if has_pp.any():
+        p_over = df.loc[has_pp].apply(lambda r: model_prob_over(r['pred_k'], r['pp_line']), axis=1)
+        df.loc[has_pp, 'pp_side'] = (p_over >= 0.5).map({True: 'over', False: 'under'})
+        df.loc[has_pp, 'model_prob_pp_line'] = p_over.where(p_over >= 0.5, 1.0 - p_over)
+
+    df['model_prob_pp_line'] = pd.to_numeric(df['model_prob_pp_line'], errors='coerce')
+    df['edge_pp'] = (df['model_prob_pp_line'] - PP_IMPLIED).where(has_pp).round(4)
     return df
 
 
@@ -375,12 +430,12 @@ def print_edge_sanity_check(df):
 
     if n_book:
         e = df.loc[df['has_line'] == 1, 'edge_book'].dropna()
-        print(f"\nSportsbook edge (model_prob_at_line - book_implied):")
+        print(f"\nSportsbook edge (model_prob_for_side - book_implied_for_side):")
         print(f"  Min={e.min():+.1%}  Median={e.median():+.1%}  Mean={e.mean():+.1%}  Max={e.max():+.1%}")
         n_pos = (e > 0.05).sum()
         print(f"  Edge > +5%: {n_pos}/{len(e)}")
 
-        cols = ['pitcher_name', 'team', 'pred_k', 'book_line', 'model_prob_book_line',
+        cols = ['pitcher_name', 'team', 'pred_k', 'book_side', 'book_line', 'model_prob_book_line',
                 'book_implied', 'edge_book', 'best_odds', 'best_book']
         top = df[df['has_line'] == 1].nlargest(5, 'edge_book')[cols].copy()
         top['model_prob_book_line'] = top['model_prob_book_line'].map('{:.1%}'.format)
@@ -391,10 +446,10 @@ def print_edge_sanity_check(df):
 
     if n_pp:
         e = df.loc[df['pp_line'].notna(), 'edge_pp'].dropna()
-        print(f"\nPrizePicks edge (model_prob_at_line - 50%):")
+        print(f"\nPrizePicks edge (model_prob_for_side - 54.3% [-119]):")
         print(f"  Min={e.min():+.1%}  Median={e.median():+.1%}  Mean={e.mean():+.1%}  Max={e.max():+.1%}")
 
-        cols = ['pitcher_name', 'team', 'pred_k', 'pp_line', 'model_prob_pp_line', 'edge_pp']
+        cols = ['pitcher_name', 'team', 'pred_k', 'pp_side', 'pp_line', 'model_prob_pp_line', 'edge_pp']
         top = df[df['pp_line'].notna()].nlargest(5, 'edge_pp', keep='all')[cols].copy()
         top['model_prob_pp_line'] = top['model_prob_pp_line'].map('{:.1%}'.format)
         top['edge_pp'] = top['edge_pp'].map(lambda x: f'{x:+.1%}')
@@ -416,9 +471,9 @@ def save_output(df, date_str):
         'game_date', 'game_pk', 'game_time', 'venue', 'away_team', 'home_team',
         'pitcher', 'pitcher_name', 'team', 'opp_team', 'is_home', 'day_night',
         'pred_k', 'p_over_4.5', 'p_over_5.5', 'p_over_6.5', 'p_over_7.5', 'p_over_8.5',
-        'has_line', 'book_line', 'best_book', 'best_odds', 'book_implied',
+        'has_line', 'book_line', 'book_side', 'best_book', 'best_odds', 'book_implied',
         'model_prob_book_line', 'edge_book',
-        'pp_line', 'model_prob_pp_line', 'edge_pp',
+        'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',
         # Detail-card / context columns (passed through from daily_runner output)
         'rest_days', 'prev_pitches', 'n_prior_starts',
         'opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games',
