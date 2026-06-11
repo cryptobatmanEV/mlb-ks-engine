@@ -1,0 +1,327 @@
+"""
+Daily prediction runner for MLB starting-pitcher strikeout props.
+
+For every probable starting pitcher today:
+  1. Pull their L3/L5/L10 rolling form from the most recent tracked start
+     (data/processed/pitcher_features.parquet).
+  2. Pull the opposing team's L15 rolling offensive features
+     (data/processed/opponent_features.parquet).
+  3. Pull the park K factor and today's weather for the venue.
+  4. Recompute rest_days / prev_pitches / n_prior_starts relative to today.
+  5. Score with models/saved/ks_model.pkl (LightGBM Poisson + bias correction)
+     to get a projected K count (lambda), then derive P(over X.5) for
+     LINES = [4.5, 5.5, 6.5, 7.5, 8.5] via the Poisson distribution.
+
+NOTE on rolling features: the p_* rolling stats (L3/L5/L10) are the same
+"stats entering a start" snapshot used to predict that pitcher's most recent
+tracked start -- i.e. they are one start stale relative to today (they don't
+yet include that most recent start). rest_days, prev_pitches, and
+n_prior_starts ARE recomputed relative to today's date so those stay current.
+
+Usage:
+    python -m predict.daily_runner              # today (local date)
+    python -m predict.daily_runner 2026-06-11    # specific date
+
+Output: data/predictions/ks_predictions_YYYY-MM-DD.csv
+"""
+
+import os
+import sys
+from datetime import date, datetime
+
+import joblib
+import numpy as np
+import pandas as pd
+import requests
+from scipy.stats import poisson
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ingestion.fetch_weather import fetch_forecast
+from models.train import FEATURES, ROLLING_STATS, WINDOWS
+
+MODEL_PATH = 'models/saved/ks_model.pkl'
+PITCHER_PATH = 'data/processed/pitcher_features.parquet'
+OPPONENT_PATH = 'data/processed/opponent_features.parquet'
+PARK_PATH = 'data/processed/park_factors_k.csv'
+WEATHER_PATH = 'data/processed/weather.parquet'
+OUT_DIR = 'data/predictions'
+
+LINES = [4.5, 5.5, 6.5, 7.5, 8.5]
+
+# MLB Stats API team abbreviations -> our internal (Statcast-derived) abbreviations
+TEAM_ALIAS = {'ARI': 'AZ', 'OAK': 'ATH'}
+
+
+def _mlb(path, params=None, timeout=30):
+    url = f'https://statsapi.mlb.com/api/v1/{path}'
+    r = requests.get(url, params=params or {}, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def _norm_abbr(abbr):
+    return TEAM_ALIAS.get(abbr, abbr)
+
+
+def format_game_time_et(iso_str):
+    if not iso_str:
+        return ''
+    try:
+        dt_utc = datetime.strptime(iso_str, '%Y-%m-%dT%H:%M:%SZ')
+        dt_et = dt_utc - pd.Timedelta(hours=4)  # approx ET (EDT); fine for display
+        return dt_et.strftime('%I:%M %p ET').lstrip('0')
+    except (ValueError, TypeError):
+        return iso_str
+
+
+def fetch_schedule(date_str):
+    """Return a list of dicts, one per probable starting pitcher today."""
+    print(f"Fetching schedule for {date_str}...")
+    data = _mlb('schedule', {
+        'sportId': 1,
+        'date': date_str,
+        'hydrate': 'probablePitcher,team',
+        'gameType': 'R',
+    })
+
+    rows = []
+    for d in data.get('dates', []):
+        for g in d.get('games', []):
+            game_pk = g['gamePk']
+            game_time = g.get('gameDate')
+            day_night = g.get('dayNight', 'day')
+            venue = g.get('venue', {}).get('name', '')
+            status = g.get('status', {}).get('detailedState', '')
+
+            home = g['teams']['home']
+            away = g['teams']['away']
+            home_abbr = _norm_abbr(home['team'].get('abbreviation', ''))
+            away_abbr = _norm_abbr(away['team'].get('abbreviation', ''))
+            home_name = home['team'].get('name', '')
+            away_name = away['team'].get('name', '')
+
+            for side, team, opp_abbr, opp_name, is_home in (
+                (home, home_abbr, away_abbr, away_name, True),
+                (away, away_abbr, home_abbr, home_name, False),
+            ):
+                pp = side.get('probablePitcher')
+                if not pp:
+                    continue
+                rows.append({
+                    'game_date': date_str,
+                    'game_pk': game_pk,
+                    'game_time': game_time,
+                    'status': status,
+                    'venue': venue,
+                    'day_night': day_night,
+                    'home_team': home_abbr,
+                    'away_team': away_abbr,
+                    'pitcher': pp['id'],
+                    'pitcher_name': pp.get('fullName', ''),
+                    'team': team,
+                    'opp_team': opp_abbr,
+                    'opp_name': opp_name,
+                    'is_home': is_home,
+                })
+
+    print(f"  {len(rows)} probable starting pitchers found")
+    return pd.DataFrame(rows)
+
+
+def load_latest_pitcher_state():
+    """One row per pitcher: their most recent tracked start (rolling features
+    snapshot, last game_date, last pitches, n_prior_starts)."""
+    df = pd.read_parquet(PITCHER_PATH)
+    df['game_date'] = pd.to_datetime(df['game_date'])
+    latest = df.sort_values(['game_date', 'game_pk']).groupby('pitcher').last()
+    return latest
+
+
+def load_latest_opponent_state():
+    """One row per team: their most recent L15 rolling offensive features."""
+    df = pd.read_parquet(OPPONENT_PATH)
+    df['game_date'] = pd.to_datetime(df['game_date'])
+    latest = df.sort_values(['game_date', 'game_pk']).groupby('team').last()
+    return latest
+
+
+def load_park_factors():
+    df = pd.read_csv(PARK_PATH)
+    return df.set_index('park')['park_k_factor']
+
+
+def get_weather_for_date(date_str, home_teams):
+    """Look up historical weather first; fetch a forecast for any home teams
+    not found (e.g. today/future games)."""
+    target = pd.Timestamp(date_str).normalize()
+    home_teams = sorted(set(home_teams))
+
+    found = pd.DataFrame()
+    if os.path.exists(WEATHER_PATH):
+        hist = pd.read_parquet(WEATHER_PATH)
+        hist['game_date'] = pd.to_datetime(hist['game_date'])
+        found = hist[(hist['game_date'] == target) & (hist['home_team'].isin(home_teams))]
+
+    missing = sorted(set(home_teams) - set(found['home_team']))
+    if missing:
+        print(f"Fetching weather forecast for {date_str}: {missing}")
+        forecast = fetch_forecast(date_str, missing)
+        found = pd.concat([found, forecast], ignore_index=True)
+
+    return found.set_index('home_team')
+
+
+def build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather):
+    rows = []
+    skipped = []
+
+    for _, g in sched.iterrows():
+        pid = g['pitcher']
+        if pid not in pitcher_state.index:
+            skipped.append(f"{g['pitcher_name']} ({g['team']}) -- no tracked starts yet")
+            continue
+
+        last = pitcher_state.loc[pid]
+        game_date = pd.Timestamp(g['game_date'])
+
+        row = {col: g[col] for col in
+               ['game_date', 'game_pk', 'game_time', 'venue', 'status',
+                'pitcher', 'pitcher_name', 'team', 'opp_team', 'home_team',
+                'away_team', 'is_home', 'day_night']}
+
+        # Rolling pitcher form (most recent tracked start's snapshot)
+        for stat in ROLLING_STATS:
+            for w in WINDOWS:
+                col = f'{stat}_{w}'
+                row[col] = last.get(col, np.nan)
+
+        # Context features, recomputed relative to today
+        row['rest_days'] = (game_date - last['game_date']).days
+        row['prev_pitches'] = last['pitches']
+        row['n_prior_starts'] = last['n_prior_starts'] + 1
+        row['is_home'] = int(g['is_home'])
+        row['is_night'] = 1 if g['day_night'] == 'night' else 0
+
+        # Opponent rolling features
+        opp = g['opp_team']
+        if opp in opp_state.index:
+            o = opp_state.loc[opp]
+            row['opp_k_pct_15'] = o['opp_k_pct_15']
+            row['opp_ops_15'] = o['opp_ops_15']
+            row['opp_chase_pct_15'] = o['opp_chase_pct_15']
+            row['n_prior_team_games'] = o['n_prior_team_games']
+        else:
+            row['opp_k_pct_15'] = np.nan
+            row['opp_ops_15'] = np.nan
+            row['opp_chase_pct_15'] = np.nan
+            row['n_prior_team_games'] = np.nan
+
+        # Park K factor (venue = today's home team)
+        home = g['home_team']
+        row['park_k_factor'] = park_factors.get(home, np.nan)
+
+        # Weather
+        if home in weather.index:
+            wx = weather.loc[home]
+            row['temp_f'] = wx['temp_f']
+            row['wind_speed'] = wx['wind_speed']
+            row['wind_favor'] = wx['wind_favor']
+            row['is_dome'] = float(wx['is_dome'])
+        else:
+            row['temp_f'] = np.nan
+            row['wind_speed'] = np.nan
+            row['wind_favor'] = np.nan
+            row['is_dome'] = np.nan
+
+        rows.append(row)
+
+    if skipped:
+        print(f"\nSkipped {len(skipped)} probable pitcher(s) with no tracked history:")
+        for s in skipped:
+            print(f"  - {s}")
+
+    return pd.DataFrame(rows)
+
+
+def score(df, bundle):
+    model = bundle['model']
+    bias_correction = bundle['bias_correction']
+    features = bundle['features']
+
+    X = df[features]
+    pred = np.clip(model.predict(X) + bias_correction, 1e-6, None)
+    df = df.copy()
+    df['pred_k'] = pred
+
+    for line in LINES:
+        floor = int(line)
+        df[f'p_over_{line}'] = 1 - poisson.cdf(floor, df['pred_k'])
+
+    return df
+
+
+def run(date_str=None):
+    if date_str is None:
+        date_str = date.today().isoformat()
+
+    print("=" * 70)
+    print(f"K PROJECTION RUN -- {date_str}")
+    print("=" * 70)
+
+    bundle = joblib.load(MODEL_PATH)
+    print(f"\nLoaded model from {MODEL_PATH} "
+          f"(bias_correction={bundle['bias_correction']:+.4f}, "
+          f"{len(bundle['features'])} features)")
+
+    sched = fetch_schedule(date_str)
+    if sched.empty:
+        print("\nNo probable pitchers found for this date. Nothing to do.")
+        return pd.DataFrame()
+
+    pitcher_state = load_latest_pitcher_state()
+    opp_state = load_latest_opponent_state()
+    park_factors = load_park_factors()
+    weather = get_weather_for_date(date_str, sched['home_team'].unique())
+
+    feat_df = build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather)
+    if feat_df.empty:
+        print("\nNo pitchers with tracked history for this date. Nothing to score.")
+        return pd.DataFrame()
+
+    out = score(feat_df, bundle)
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUT_DIR, f'ks_predictions_{date_str}.csv')
+
+    cols = (
+        ['game_date', 'game_pk', 'game_time', 'venue', 'status', 'away_team', 'home_team',
+         'pitcher', 'pitcher_name', 'team', 'opp_team', 'is_home', 'day_night',
+         'rest_days', 'prev_pitches', 'n_prior_starts',
+         'opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games',
+         'park_k_factor', 'temp_f', 'wind_speed', 'wind_favor', 'is_dome',
+         'pred_k']
+        + [f'p_over_{line}' for line in LINES]
+        + [f'{stat}_10' for stat in ROLLING_STATS]
+    )
+    out[cols].to_csv(out_path, index=False)
+    print(f"\nSaved {len(out)} predictions to {out_path}")
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print("PROJECTIONS")
+    print("=" * 70)
+    disp = out[cols].copy()
+    disp['game_time'] = disp['game_time'].apply(format_game_time_et)
+    for _, r in disp.sort_values('pred_k', ascending=False).iterrows():
+        loc = 'vs' if r['is_home'] else '@'
+        line_str = '  '.join(f"{line}: {r[f'p_over_{line}']:.0%}" for line in LINES)
+        print(f"  {r['pitcher_name']:<24s} {r['team']:>3s} {loc} {r['opp_team']:<3s}  "
+              f"({r['game_time']:>10s})  proj K = {r['pred_k']:.2f}   {line_str}")
+
+    return out
+
+
+if __name__ == '__main__':
+    date_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run(date_arg)

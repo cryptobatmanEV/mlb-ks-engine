@@ -1,0 +1,358 @@
+"""
+Upsert today's K fair-odds output into Neon PostgreSQL.
+
+The ks_predictions table is created automatically on first run. Re-running
+for the same date is safe -- rows are updated, not duplicated.
+
+NOTE: this connects to the same Neon database as mlb-prop-engine
+(shared DATABASE_URL), but only ever touches the ks_predictions table.
+
+Usage:
+    python -m scripts.write_to_db              # today
+    python -m scripts.write_to_db 2026-06-11   # specific date
+
+Called automatically as Step 4 by scripts/daily_pipeline.py.
+"""
+
+import math
+import os
+import sys
+from datetime import date as date_cls
+
+import pandas as pd
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+DATABASE_URL = os.getenv('DATABASE_URL')
+OUTPUTS_DIR = 'data/outputs'
+
+CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS ks_predictions (
+    id                   SERIAL PRIMARY KEY,
+    game_date            DATE        NOT NULL,
+    game_pk              BIGINT      NOT NULL,
+    pitcher              BIGINT      NOT NULL,
+    pitcher_name         TEXT,
+    team                 TEXT,
+    opp_team             TEXT,
+    home_team            TEXT,
+    away_team            TEXT,
+    is_home              BOOLEAN,
+    day_night            TEXT,
+    venue                TEXT,
+    game_time            TEXT,
+    pred_k               FLOAT,
+    p_over_4_5           FLOAT,
+    p_over_5_5           FLOAT,
+    p_over_6_5           FLOAT,
+    p_over_7_5           FLOAT,
+    p_over_8_5           FLOAT,
+    has_line             BOOLEAN,
+    book_line            FLOAT,
+    best_book            TEXT,
+    best_odds            INTEGER,
+    book_implied         FLOAT,
+    model_prob_book_line FLOAT,
+    edge_book            FLOAT,
+    pp_line              FLOAT,
+    model_prob_pp_line   FLOAT,
+    edge_pp              FLOAT,
+    rest_days            INTEGER,
+    prev_pitches         INTEGER,
+    n_prior_starts       INTEGER,
+    opp_k_pct_15         FLOAT,
+    opp_ops_15           FLOAT,
+    opp_chase_pct_15     FLOAT,
+    n_prior_team_games   INTEGER,
+    park_k_factor        FLOAT,
+    temp_f               FLOAT,
+    wind_speed           FLOAT,
+    wind_favor           FLOAT,
+    is_dome              BOOLEAN,
+    p_k_per9_10          FLOAT,
+    p_bb_per9_10         FLOAT,
+    p_hr_per9_10         FLOAT,
+    p_whip_10            FLOAT,
+    p_fip_10             FLOAT,
+    p_k_pct_10           FLOAT,
+    p_swstr_pct_10       FLOAT,
+    p_called_strike_pct_10 FLOAT,
+    p_chase_pct_10       FLOAT,
+    p_fp_strike_pct_10   FLOAT,
+    p_fastball_velo_10   FLOAT,
+    p_fastball_pct_10    FLOAT,
+    p_slider_pct_10      FLOAT,
+    p_curveball_pct_10   FLOAT,
+    p_changeup_pct_10    FLOAT,
+    p_other_pct_10       FLOAT,
+    p_avg_pitches_10     FLOAT,
+    p_avg_ip_10          FLOAT,
+    actual_k             INTEGER     DEFAULT NULL,
+    created_at           TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (game_date, pitcher, game_pk)
+);
+"""
+
+# Columns added after the table was first created on some environments --
+# CREATE TABLE IF NOT EXISTS won't add these to a pre-existing table, so
+# add them defensively on every run.
+ALTER_STATEMENTS = [
+    f"ALTER TABLE ks_predictions ADD COLUMN IF NOT EXISTS {col_def}"
+    for col_def in [
+        "rest_days INTEGER",
+        "prev_pitches INTEGER",
+        "n_prior_starts INTEGER",
+        "opp_k_pct_15 FLOAT",
+        "opp_ops_15 FLOAT",
+        "opp_chase_pct_15 FLOAT",
+        "n_prior_team_games INTEGER",
+        "park_k_factor FLOAT",
+        "temp_f FLOAT",
+        "wind_speed FLOAT",
+        "wind_favor FLOAT",
+        "is_dome BOOLEAN",
+        "p_k_per9_10 FLOAT",
+        "p_bb_per9_10 FLOAT",
+        "p_hr_per9_10 FLOAT",
+        "p_whip_10 FLOAT",
+        "p_fip_10 FLOAT",
+        "p_k_pct_10 FLOAT",
+        "p_swstr_pct_10 FLOAT",
+        "p_called_strike_pct_10 FLOAT",
+        "p_chase_pct_10 FLOAT",
+        "p_fp_strike_pct_10 FLOAT",
+        "p_fastball_velo_10 FLOAT",
+        "p_fastball_pct_10 FLOAT",
+        "p_slider_pct_10 FLOAT",
+        "p_curveball_pct_10 FLOAT",
+        "p_changeup_pct_10 FLOAT",
+        "p_other_pct_10 FLOAT",
+        "p_avg_pitches_10 FLOAT",
+        "p_avg_ip_10 FLOAT",
+        "actual_k INTEGER DEFAULT NULL",
+    ]
+]
+
+UPSERT = """
+INSERT INTO ks_predictions (
+    game_date, game_pk, pitcher, pitcher_name, team, opp_team, home_team, away_team,
+    is_home, day_night, venue, game_time,
+    pred_k, p_over_4_5, p_over_5_5, p_over_6_5, p_over_7_5, p_over_8_5,
+    has_line, book_line, best_book, best_odds, book_implied,
+    model_prob_book_line, edge_book,
+    pp_line, model_prob_pp_line, edge_pp,
+    rest_days, prev_pitches, n_prior_starts,
+    opp_k_pct_15, opp_ops_15, opp_chase_pct_15, n_prior_team_games,
+    park_k_factor, temp_f, wind_speed, wind_favor, is_dome,
+    p_k_per9_10, p_bb_per9_10, p_hr_per9_10, p_whip_10, p_fip_10,
+    p_k_pct_10, p_swstr_pct_10, p_called_strike_pct_10, p_chase_pct_10,
+    p_fp_strike_pct_10, p_fastball_velo_10, p_fastball_pct_10,
+    p_slider_pct_10, p_curveball_pct_10, p_changeup_pct_10, p_other_pct_10,
+    p_avg_pitches_10, p_avg_ip_10
+) VALUES (
+    %(game_date)s, %(game_pk)s, %(pitcher)s, %(pitcher_name)s, %(team)s, %(opp_team)s,
+    %(home_team)s, %(away_team)s,
+    %(is_home)s, %(day_night)s, %(venue)s, %(game_time)s,
+    %(pred_k)s, %(p_over_4_5)s, %(p_over_5_5)s, %(p_over_6_5)s, %(p_over_7_5)s, %(p_over_8_5)s,
+    %(has_line)s, %(book_line)s, %(best_book)s, %(best_odds)s, %(book_implied)s,
+    %(model_prob_book_line)s, %(edge_book)s,
+    %(pp_line)s, %(model_prob_pp_line)s, %(edge_pp)s,
+    %(rest_days)s, %(prev_pitches)s, %(n_prior_starts)s,
+    %(opp_k_pct_15)s, %(opp_ops_15)s, %(opp_chase_pct_15)s, %(n_prior_team_games)s,
+    %(park_k_factor)s, %(temp_f)s, %(wind_speed)s, %(wind_favor)s, %(is_dome)s,
+    %(p_k_per9_10)s, %(p_bb_per9_10)s, %(p_hr_per9_10)s, %(p_whip_10)s, %(p_fip_10)s,
+    %(p_k_pct_10)s, %(p_swstr_pct_10)s, %(p_called_strike_pct_10)s, %(p_chase_pct_10)s,
+    %(p_fp_strike_pct_10)s, %(p_fastball_velo_10)s, %(p_fastball_pct_10)s,
+    %(p_slider_pct_10)s, %(p_curveball_pct_10)s, %(p_changeup_pct_10)s, %(p_other_pct_10)s,
+    %(p_avg_pitches_10)s, %(p_avg_ip_10)s
+)
+ON CONFLICT (game_date, pitcher, game_pk) DO UPDATE SET
+    pitcher_name         = EXCLUDED.pitcher_name,
+    team                 = EXCLUDED.team,
+    opp_team             = EXCLUDED.opp_team,
+    home_team            = EXCLUDED.home_team,
+    away_team            = EXCLUDED.away_team,
+    is_home              = EXCLUDED.is_home,
+    day_night            = EXCLUDED.day_night,
+    venue                = EXCLUDED.venue,
+    game_time            = EXCLUDED.game_time,
+    pred_k               = EXCLUDED.pred_k,
+    p_over_4_5           = EXCLUDED.p_over_4_5,
+    p_over_5_5           = EXCLUDED.p_over_5_5,
+    p_over_6_5           = EXCLUDED.p_over_6_5,
+    p_over_7_5           = EXCLUDED.p_over_7_5,
+    p_over_8_5           = EXCLUDED.p_over_8_5,
+    has_line             = EXCLUDED.has_line,
+    book_line            = EXCLUDED.book_line,
+    best_book            = EXCLUDED.best_book,
+    best_odds            = EXCLUDED.best_odds,
+    book_implied         = EXCLUDED.book_implied,
+    model_prob_book_line = EXCLUDED.model_prob_book_line,
+    edge_book            = EXCLUDED.edge_book,
+    pp_line              = EXCLUDED.pp_line,
+    model_prob_pp_line   = EXCLUDED.model_prob_pp_line,
+    edge_pp              = EXCLUDED.edge_pp,
+    rest_days            = EXCLUDED.rest_days,
+    prev_pitches         = EXCLUDED.prev_pitches,
+    n_prior_starts       = EXCLUDED.n_prior_starts,
+    opp_k_pct_15         = EXCLUDED.opp_k_pct_15,
+    opp_ops_15           = EXCLUDED.opp_ops_15,
+    opp_chase_pct_15     = EXCLUDED.opp_chase_pct_15,
+    n_prior_team_games   = EXCLUDED.n_prior_team_games,
+    park_k_factor        = EXCLUDED.park_k_factor,
+    temp_f               = EXCLUDED.temp_f,
+    wind_speed           = EXCLUDED.wind_speed,
+    wind_favor           = EXCLUDED.wind_favor,
+    is_dome              = EXCLUDED.is_dome,
+    p_k_per9_10          = EXCLUDED.p_k_per9_10,
+    p_bb_per9_10         = EXCLUDED.p_bb_per9_10,
+    p_hr_per9_10         = EXCLUDED.p_hr_per9_10,
+    p_whip_10            = EXCLUDED.p_whip_10,
+    p_fip_10             = EXCLUDED.p_fip_10,
+    p_k_pct_10           = EXCLUDED.p_k_pct_10,
+    p_swstr_pct_10       = EXCLUDED.p_swstr_pct_10,
+    p_called_strike_pct_10 = EXCLUDED.p_called_strike_pct_10,
+    p_chase_pct_10       = EXCLUDED.p_chase_pct_10,
+    p_fp_strike_pct_10   = EXCLUDED.p_fp_strike_pct_10,
+    p_fastball_velo_10   = EXCLUDED.p_fastball_velo_10,
+    p_fastball_pct_10    = EXCLUDED.p_fastball_pct_10,
+    p_slider_pct_10      = EXCLUDED.p_slider_pct_10,
+    p_curveball_pct_10   = EXCLUDED.p_curveball_pct_10,
+    p_changeup_pct_10    = EXCLUDED.p_changeup_pct_10,
+    p_other_pct_10       = EXCLUDED.p_other_pct_10,
+    p_avg_pitches_10     = EXCLUDED.p_avg_pitches_10,
+    p_avg_ip_10          = EXCLUDED.p_avg_ip_10,
+    created_at           = NOW();
+"""
+
+
+def _clean(val):
+    """Return None for NaN/NA; pass everything else through unchanged."""
+    if val is None:
+        return None
+    try:
+        if math.isnan(float(val)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return val
+
+
+def _bool(val):
+    """Convert 0/1/True/False/NaN to Python bool or None."""
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return None
+    return bool(int(val))
+
+
+def _int(val):
+    """Convert numeric-or-NaN to int or None."""
+    v = _clean(val)
+    return None if v is None else int(v)
+
+
+def _str(val):
+    """Convert a pandas cell to str or None (handles NaN and 'nan' strings)."""
+    if val is None:
+        return None
+    s = str(val)
+    return None if s in ('nan', 'None', '') else s
+
+
+def run(date_str=None):
+    if date_str is None:
+        date_str = date_cls.today().isoformat()
+
+    if not DATABASE_URL:
+        print("  DATABASE_URL not set in .env -- skipping DB write.")
+        return
+
+    path = os.path.join(OUTPUTS_DIR, f'ks_fair_odds_{date_str}.csv')
+    if not os.path.exists(path):
+        print(f"  No ks_fair_odds file for {date_str} -- skipping DB write.")
+        return
+
+    df = pd.read_csv(path)
+    print(f"  Upserting {len(df)} rows for {date_str} into ks_predictions...")
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(CREATE_TABLE)
+                for stmt in ALTER_STATEMENTS:
+                    cur.execute(stmt)
+                for _, row in df.iterrows():
+                    cur.execute(UPSERT, {
+                        'game_date': date_str,
+                        'game_pk': int(row['game_pk']),
+                        'pitcher': int(row['pitcher']),
+                        'pitcher_name': _str(row.get('pitcher_name')),
+                        'team': _str(row.get('team')),
+                        'opp_team': _str(row.get('opp_team')),
+                        'home_team': _str(row.get('home_team')),
+                        'away_team': _str(row.get('away_team')),
+                        'is_home': _bool(row.get('is_home')),
+                        'day_night': _str(row.get('day_night')),
+                        'venue': _str(row.get('venue')),
+                        'game_time': _str(row.get('game_time')),
+                        'pred_k': _clean(row.get('pred_k')),
+                        'p_over_4_5': _clean(row.get('p_over_4.5')),
+                        'p_over_5_5': _clean(row.get('p_over_5.5')),
+                        'p_over_6_5': _clean(row.get('p_over_6.5')),
+                        'p_over_7_5': _clean(row.get('p_over_7.5')),
+                        'p_over_8_5': _clean(row.get('p_over_8.5')),
+                        'has_line': _bool(row.get('has_line')),
+                        'book_line': _clean(row.get('book_line')),
+                        'best_book': _str(row.get('best_book')),
+                        'best_odds': _int(row.get('best_odds')),
+                        'book_implied': _clean(row.get('book_implied')),
+                        'model_prob_book_line': _clean(row.get('model_prob_book_line')),
+                        'edge_book': _clean(row.get('edge_book')),
+                        'pp_line': _clean(row.get('pp_line')),
+                        'model_prob_pp_line': _clean(row.get('model_prob_pp_line')),
+                        'edge_pp': _clean(row.get('edge_pp')),
+                        'rest_days': _int(row.get('rest_days')),
+                        'prev_pitches': _int(row.get('prev_pitches')),
+                        'n_prior_starts': _int(row.get('n_prior_starts')),
+                        'opp_k_pct_15': _clean(row.get('opp_k_pct_15')),
+                        'opp_ops_15': _clean(row.get('opp_ops_15')),
+                        'opp_chase_pct_15': _clean(row.get('opp_chase_pct_15')),
+                        'n_prior_team_games': _int(row.get('n_prior_team_games')),
+                        'park_k_factor': _clean(row.get('park_k_factor')),
+                        'temp_f': _clean(row.get('temp_f')),
+                        'wind_speed': _clean(row.get('wind_speed')),
+                        'wind_favor': _clean(row.get('wind_favor')),
+                        'is_dome': _bool(row.get('is_dome')),
+                        'p_k_per9_10': _clean(row.get('p_k_per9_10')),
+                        'p_bb_per9_10': _clean(row.get('p_bb_per9_10')),
+                        'p_hr_per9_10': _clean(row.get('p_hr_per9_10')),
+                        'p_whip_10': _clean(row.get('p_whip_10')),
+                        'p_fip_10': _clean(row.get('p_fip_10')),
+                        'p_k_pct_10': _clean(row.get('p_k_pct_10')),
+                        'p_swstr_pct_10': _clean(row.get('p_swstr_pct_10')),
+                        'p_called_strike_pct_10': _clean(row.get('p_called_strike_pct_10')),
+                        'p_chase_pct_10': _clean(row.get('p_chase_pct_10')),
+                        'p_fp_strike_pct_10': _clean(row.get('p_fp_strike_pct_10')),
+                        'p_fastball_velo_10': _clean(row.get('p_fastball_velo_10')),
+                        'p_fastball_pct_10': _clean(row.get('p_fastball_pct_10')),
+                        'p_slider_pct_10': _clean(row.get('p_slider_pct_10')),
+                        'p_curveball_pct_10': _clean(row.get('p_curveball_pct_10')),
+                        'p_changeup_pct_10': _clean(row.get('p_changeup_pct_10')),
+                        'p_other_pct_10': _clean(row.get('p_other_pct_10')),
+                        'p_avg_pitches_10': _clean(row.get('p_avg_pitches_10')),
+                        'p_avg_ip_10': _clean(row.get('p_avg_ip_10')),
+                    })
+        print(f"  Done -- {len(df)} rows upserted.")
+    finally:
+        conn.close()
+
+
+if __name__ == '__main__':
+    date_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run(date_arg)

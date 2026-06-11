@@ -80,6 +80,8 @@ def fetch_pitcher_season(pitcher_id, year):
         er = int(stat.get('earnedRuns', 0) or 0)
         r_ = int(stat.get('runs', 0) or 0)
         hr = int(stat.get('homeRuns', 0) or 0)
+        hbp = int(stat.get('hitBatsmen', 0) or 0)
+        bf = int(stat.get('battersFaced', 0) or 0)
         pitches = int(stat.get('numberOfPitches', 0) or 0)
         strikes = int(stat.get('strikes', 0) or 0)
 
@@ -91,6 +93,7 @@ def fetch_pitcher_season(pitcher_id, year):
             'season': year,
             'game_pk': split['game']['gamePk'],
             'game_date': split['date'],
+            'day_night': split.get('game', {}).get('dayNight'),
             'team_id': split['team']['id'],
             'team_name': split['team']['name'],
             'opponent_id': split['opponent']['id'],
@@ -100,6 +103,8 @@ def fetch_pitcher_season(pitcher_id, year):
             'outs': outs,
             'k': k,
             'h': h,
+            'hbp': hbp,
+            'bf': bf,
             'bb': bb,
             'er': er,
             'r': r_,
