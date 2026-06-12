@@ -22,6 +22,7 @@ export type Row = {
   game_time: string | null;
   pred_k: number;
   adj_k: number | null;
+  actual_k: number | null;
   p_over_4_5: number | null;
   p_over_5_5: number | null;
   p_over_6_5: number | null;
@@ -72,7 +73,7 @@ export type Row = {
 };
 
 type SortKey =
-  | 'pitcher_name' | 'team' | 'opp_team' | 'pred_k' | 'adj_k'
+  | 'pitcher_name' | 'team' | 'opp_team' | 'pred_k' | 'adj_k' | 'actual_k'
   | 'book_line' | 'edge_book' | 'pp_line' | 'edge_pp'
   | 'p_k_per9_10' | 'p_swstr_pct_10' | 'opp_k_pct_15' | 'park_k_factor' | 'game_time';
 
@@ -462,6 +463,24 @@ const COLS: ColDef[] = [
   { key: null,              label: '',          align: 'right' },
 ];
 
+// Result columns (ACTUAL Ks, RESULT) are only spliced into COLS for past
+// dates once actual_k has been logged -- see `cols` in the component.
+const ACTUAL_K_COL: ColDef = { key: 'actual_k', label: 'ACTUAL Ks', align: 'right' };
+const RESULT_COL:   ColDef = { key: null,       label: 'RESULT',    align: 'right' };
+
+function resultForRow(row: Row): { text: string; color: string } | null {
+  if (row.actual_k == null || !row.has_line || row.book_line == null || row.book_side == null) {
+    return null;
+  }
+  if (row.actual_k === row.book_line) return { text: 'P', color: 'var(--ev-gold)' };
+  const hit = row.book_side === 'under'
+    ? row.actual_k < row.book_line
+    : row.actual_k > row.book_line;
+  return hit
+    ? { text: 'W', color: 'var(--ev-green)' }
+    : { text: 'L', color: 'var(--ev-red)' };
+}
+
 // ── AI Picks ───────────────────────────────────────────────────────────────
 
 const AI_PICK_LIMIT = 5;
@@ -759,6 +778,18 @@ export default function KsTable({ rows }: { rows: Row[] }) {
     return candidates.slice(0, AI_PICK_LIMIT);
   }, [rows]);
 
+  // Result columns (ACTUAL Ks, RESULT) only appear once actual_k has been
+  // logged for this date -- i.e. never for today's still-in-progress card.
+  const hasResults = useMemo(() => rows.some(r => r.actual_k != null), [rows]);
+
+  const cols = useMemo(() => {
+    if (!hasResults) return COLS;
+    const out = [...COLS];
+    out.splice(out.findIndex(c => c.key === 'adj_k') + 1, 0, ACTUAL_K_COL);
+    out.splice(out.findIndex(c => c.key === 'book_line') + 1, 0, RESULT_COL);
+    return out;
+  }, [hasResults]);
+
   type TableItem =
     | { type: 'row';    row: Row }
     | { type: 'header'; label: string; count: number; gamePk: number };
@@ -890,7 +921,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
-              {COLS.map((col, ci) => {
+              {cols.map((col, ci) => {
                 const isActive = col.key !== null && sortKey === col.key;
                 const isMyCol = col.label === 'MY LINE' || col.label === 'MY EDGE';
                 return (
@@ -931,7 +962,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               if (item.type === 'header') {
                 return (
                   <tr key={`hdr-${item.gamePk}`}>
-                    <td colSpan={COLS.length} style={{
+                    <td colSpan={cols.length} style={{
                       padding:       '7px 16px',
                       background:    'rgba(255,255,255,0.03)',
                       borderTop:     '1px solid rgba(255,255,255,0.08)',
@@ -957,6 +988,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
               const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
               const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
+              const result       = hasResults ? resultForRow(row) : null;
 
               const rawInput   = customLines[id] ?? '';
               const customNum  = parseLineInput(rawInput);
@@ -1050,6 +1082,13 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       {row.adj_k != null ? row.adj_k.toFixed(2) : row.pred_k.toFixed(2)}
                     </td>
 
+                    {/* ACTUAL Ks */}
+                    {hasResults && (
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                        {row.actual_k != null ? row.actual_k : <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>}
+                      </td>
+                    )}
+
                     {/* BOOK O/U */}
                     <td style={{ padding: '9px 12px', textAlign: 'right' }}>
                       {row.has_line ? (
@@ -1070,6 +1109,19 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>
                       )}
                     </td>
+
+                    {/* RESULT */}
+                    {hasResults && (
+                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                        {result ? (
+                          <span style={{ fontWeight: 700, color: result.color }}>
+                            {result.text}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>
+                        )}
+                      </td>
+                    )}
 
                     {/* BOOK EDGE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
@@ -1170,7 +1222,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   {/* Expanded detail row */}
                   {isExpanded && (
                     <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
-                      <td colSpan={COLS.length} style={{ padding: 0 }}>
+                      <td colSpan={cols.length} style={{ padding: 0 }}>
                         <DetailCard row={row} />
                       </td>
                     </tr>
