@@ -85,7 +85,7 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
                 <td style={{ padding: '9px 14px', color: 'var(--ev-text)' }}>{bet.pitcher_name}</td>
                 <td style={{ padding: '9px 14px', color: 'var(--ev-muted)' }}>{bet.team}</td>
                 <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-text)' }}>
-                  O {bet.line}
+                  {bet.side === 'under' ? 'U' : 'O'} {bet.line}
                 </td>
                 <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-blue)' }}>
                   {fmtOdds(bet.odds)}
