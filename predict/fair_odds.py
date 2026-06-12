@@ -136,6 +136,16 @@ def model_prob_over(pred_k, line):
     return 0.5 + (p_over - 0.5) * EDGE_SCALE
 
 
+# How far ADJ Ks must sit from a line before the recommended side is forced
+# to follow the projection direction (over if adj_k is this much above the
+# line, under if this much below), overriding the raw edge comparison. Below
+# this margin the direction is genuinely ambiguous, so the side with the
+# larger edge vs. the market's implied probability is used instead. This
+# avoids counterintuitive plays where the model projects well above a line
+# but a vig quirk gives the under a marginally larger edge.
+SIDE_MARGIN = 0.3
+
+
 # Weight given to the model's own projection when blending it with the
 # book's market-implied projection to form `adj_k` (ADJ Ks). The remaining
 # weight (1 - MODEL_WEIGHT) goes to the market. The model gets more weight
@@ -404,7 +414,20 @@ def join_sportsbook_odds(pred_df, odds_df):
         if edge_over is None and edge_under is None:
             return pd.Series([None, None, None, None, None, None])
 
-        if edge_under is None or (edge_over is not None and edge_over >= edge_under):
+        # When ADJ Ks sits clearly above or below the line, force the
+        # recommendation to follow the projection direction rather than
+        # whichever side happens to have the larger edge. Within
+        # SIDE_MARGIN of the line, direction is ambiguous, so fall back to
+        # the edge comparison.
+        diff = r['adj_k'] - r['book_line']
+        if diff > SIDE_MARGIN and edge_over is not None:
+            pick_over = True
+        elif diff < -SIDE_MARGIN and edge_under is not None:
+            pick_over = False
+        else:
+            pick_over = edge_under is None or (edge_over is not None and edge_over >= edge_under)
+
+        if pick_over:
             return pd.Series(['over', p_over, r['over_implied'], round(edge_over, 4),
                                r['over_book'], r['over_odds']])
         return pd.Series(['under', p_under, r['under_implied'], round(edge_under, 4),
@@ -492,8 +515,16 @@ def join_prizepicks(pred_df, pp_df):
     has_pp = df['pp_line'].notna()
     if has_pp.any():
         p_over = df.loc[has_pp].apply(lambda r: model_prob_over(r['adj_k'], r['pp_line']), axis=1)
-        df.loc[has_pp, 'pp_side'] = (p_over >= 0.5).map({True: 'over', False: 'under'})
-        df.loc[has_pp, 'model_prob_pp_line'] = p_over.where(p_over >= 0.5, 1.0 - p_over)
+        diff = df.loc[has_pp, 'adj_k'] - df.loc[has_pp, 'pp_line']
+
+        # Same projection-direction override as book lines (see SIDE_MARGIN):
+        # only fall back to the raw p_over >= 0.5 comparison when adj_k is
+        # within SIDE_MARGIN of the PP line.
+        side_over = (p_over >= 0.5)
+        side_over = side_over.where(diff.abs() <= SIDE_MARGIN, diff > 0)
+
+        df.loc[has_pp, 'pp_side'] = side_over.map({True: 'over', False: 'under'})
+        df.loc[has_pp, 'model_prob_pp_line'] = p_over.where(side_over, 1.0 - p_over)
 
     df['model_prob_pp_line'] = pd.to_numeric(df['model_prob_pp_line'], errors='coerce')
     df['edge_pp'] = (df['model_prob_pp_line'] - PP_IMPLIED).where(has_pp).round(4)
