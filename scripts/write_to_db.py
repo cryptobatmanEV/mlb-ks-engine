@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS ks_predictions (
     venue                TEXT,
     game_time            TEXT,
     pred_k               FLOAT,
+    adj_k                FLOAT,
     p_over_4_5           FLOAT,
     p_over_5_5           FLOAT,
     p_over_6_5           FLOAT,
@@ -139,6 +140,7 @@ ALTER_STATEMENTS = [
         "actual_k INTEGER DEFAULT NULL",
         "book_side TEXT",
         "pp_side TEXT",
+        "adj_k FLOAT",
     ]
 ]
 
@@ -146,7 +148,7 @@ UPSERT = """
 INSERT INTO ks_predictions (
     game_date, game_pk, pitcher, pitcher_name, team, opp_team, home_team, away_team,
     is_home, day_night, venue, game_time,
-    pred_k, p_over_4_5, p_over_5_5, p_over_6_5, p_over_7_5, p_over_8_5,
+    pred_k, adj_k, p_over_4_5, p_over_5_5, p_over_6_5, p_over_7_5, p_over_8_5,
     has_line, book_line, book_side, best_book, best_odds, book_implied,
     model_prob_book_line, edge_book,
     pp_line, pp_side, model_prob_pp_line, edge_pp,
@@ -162,7 +164,7 @@ INSERT INTO ks_predictions (
     %(game_date)s, %(game_pk)s, %(pitcher)s, %(pitcher_name)s, %(team)s, %(opp_team)s,
     %(home_team)s, %(away_team)s,
     %(is_home)s, %(day_night)s, %(venue)s, %(game_time)s,
-    %(pred_k)s, %(p_over_4_5)s, %(p_over_5_5)s, %(p_over_6_5)s, %(p_over_7_5)s, %(p_over_8_5)s,
+    %(pred_k)s, %(adj_k)s, %(p_over_4_5)s, %(p_over_5_5)s, %(p_over_6_5)s, %(p_over_7_5)s, %(p_over_8_5)s,
     %(has_line)s, %(book_line)s, %(book_side)s, %(best_book)s, %(best_odds)s, %(book_implied)s,
     %(model_prob_book_line)s, %(edge_book)s,
     %(pp_line)s, %(pp_side)s, %(model_prob_pp_line)s, %(edge_pp)s,
@@ -186,6 +188,7 @@ ON CONFLICT (game_date, pitcher, game_pk) DO UPDATE SET
     venue                = EXCLUDED.venue,
     game_time            = EXCLUDED.game_time,
     pred_k               = EXCLUDED.pred_k,
+    adj_k                = EXCLUDED.adj_k,
     p_over_4_5           = EXCLUDED.p_over_4_5,
     p_over_5_5           = EXCLUDED.p_over_5_5,
     p_over_6_5           = EXCLUDED.p_over_6_5,
@@ -308,6 +311,7 @@ def run(date_str=None):
                         'venue': _str(row.get('venue')),
                         'game_time': _str(row.get('game_time')),
                         'pred_k': _clean(row.get('pred_k')),
+                        'adj_k': _clean(row.get('adj_k')),
                         'p_over_4_5': _clean(row.get('p_over_4.5')),
                         'p_over_5_5': _clean(row.get('p_over_5.5')),
                         'p_over_6_5': _clean(row.get('p_over_6.5')),

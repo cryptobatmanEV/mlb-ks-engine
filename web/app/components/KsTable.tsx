@@ -21,6 +21,7 @@ export type Row = {
   venue: string | null;
   game_time: string | null;
   pred_k: number;
+  adj_k: number | null;
   p_over_4_5: number | null;
   p_over_5_5: number | null;
   p_over_6_5: number | null;
@@ -71,7 +72,7 @@ export type Row = {
 };
 
 type SortKey =
-  | 'pitcher_name' | 'team' | 'opp_team' | 'pred_k'
+  | 'pitcher_name' | 'team' | 'opp_team' | 'pred_k' | 'adj_k'
   | 'book_line' | 'edge_book' | 'pp_line' | 'edge_pp'
   | 'p_k_per9_10' | 'p_swstr_pct_10' | 'opp_k_pct_15' | 'park_k_factor' | 'game_time';
 
@@ -446,6 +447,7 @@ const COLS: ColDef[] = [
   { key: 'team',            label: 'TEAM',      align: 'left'  },
   { key: 'opp_team',        label: 'OPP',       align: 'left'  },
   { key: 'pred_k',          label: 'PROJ Ks',   align: 'right' },
+  { key: 'adj_k',           label: 'ADJ Ks',    align: 'right' },
   { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
   { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
   { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
@@ -724,7 +726,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
               const rawInput   = customLines[id] ?? '';
               const customNum  = parseLineInput(rawInput);
-              const myProbOver = customNum != null ? probOver(customNum, row.pred_k) : null;
+              const myProbOver = customNum != null ? probOver(customNum, row.adj_k ?? row.pred_k) : null;
               const mySide     = myProbOver != null ? (myProbOver >= 0.5 ? 'over' : 'under') : null;
               const myProb     = myProbOver != null
                 ? (mySide === 'over' ? myProbOver : 1 - myProbOver)
@@ -807,6 +809,11 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {/* PROJ Ks */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
                       {row.pred_k.toFixed(2)}
+                    </td>
+
+                    {/* ADJ Ks */}
+                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                      {row.adj_k != null ? row.adj_k.toFixed(2) : row.pred_k.toFixed(2)}
                     </td>
 
                     {/* BOOK O/U */}

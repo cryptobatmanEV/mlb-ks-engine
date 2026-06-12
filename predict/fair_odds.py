@@ -3,13 +3,21 @@ Pull sportsbook strikeout-prop lines (the-odds-api.com, market=pitcher_strikeout
 and PrizePicks pitcher-strikeout projections, match them to today's model
 projections (data/predictions/ks_predictions_{date}.csv), and compute edge.
 
-For every line, the model computes BOTH P(over) and P(under) (P(under) =
-1 - P(over), exact for X.5 lines) and picks whichever side has the larger
-edge vs. the market's implied probability:
+Market-informed projections: when a book line is available, the book's
+over/under prices are de-vigged and inverted (see market_implied_k) to back
+out the market's own implied expected-K count. That market projection is
+blended with the model's raw projection (pred_k) using MODEL_WEIGHT to
+produce `adj_k` ("ADJ Ks"). adj_k is then used -- instead of the raw model
+projection -- for every Poisson P(over)/P(under) calculation below. With no
+book line, adj_k falls back to the raw model projection (100% model weight).
 
-  edge_book = model_prob_for_book_side - book_implied_prob_for_that_side
-  edge_pp   = model_prob_for_pp_side   - 0.543  (PrizePicks standard pick'em
-                                                   is -119, implied = 119/219)
+For every line, the model computes BOTH P(over) and P(under) (P(under) =
+1 - P(over), exact for X.5 lines) using adj_k, and picks whichever side has
+the larger edge vs. the market's implied probability:
+
+  edge_book = blended_prob_for_book_side - book_implied_prob_for_that_side
+  edge_pp   = blended_prob_for_pp_side   - 0.543  (PrizePicks standard pick'em
+                                                     is -119, implied = 119/219)
 
 `book_side` / `pp_side` ('over' / 'under') record which side was chosen.
 
@@ -30,6 +38,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+from scipy.optimize import brentq
 from scipy.stats import poisson
 
 load_dotenv()
@@ -125,6 +134,50 @@ def model_prob_over(pred_k, line):
     to correct for mild overconfidence at large predicted edges."""
     p_over = float(1 - poisson.cdf(int(line), pred_k))
     return 0.5 + (p_over - 0.5) * EDGE_SCALE
+
+
+# Weight given to the model's own projection when blending it with the
+# book's market-implied projection to form `adj_k` (ADJ Ks). The remaining
+# weight (1 - MODEL_WEIGHT) goes to the market. The model gets more weight
+# because it has pitcher-specific Statcast data the market may not fully
+# price in, but the market gets significant weight because it aggregates
+# information (injuries, weather, lineup news, etc.) the model doesn't see.
+# Tune this based on validation data.
+MODEL_WEIGHT = 0.60
+
+
+def implied_lambda_from_line(line, p_over):
+    """Invert the Poisson CDF: find lambda such that
+    1 - poisson.cdf(floor(line), lambda) == p_over. Used to back out the
+    market's implied expected-K count from a book's over/under line."""
+    floor = int(line)
+    p_over = min(max(p_over, 0.001), 0.999)
+    f = lambda lam: (1 - poisson.cdf(floor, lam)) - p_over
+    try:
+        return brentq(f, 1e-6, 30.0)
+    except ValueError:
+        return None
+
+
+def market_implied_k(line, over_implied, under_implied):
+    """De-vig the book's over/under implied probabilities at `line` (if both
+    are available, normalize so they sum to 1; otherwise use whichever side
+    is available) and back out the implied expected-K count (lambda)."""
+    if pd.isna(line):
+        return None
+    if pd.notna(over_implied) and pd.notna(under_implied):
+        total = over_implied + under_implied
+        p_over = over_implied / total if total > 0 else None
+    elif pd.notna(over_implied):
+        p_over = over_implied
+    elif pd.notna(under_implied):
+        p_over = 1.0 - under_implied
+    else:
+        p_over = None
+
+    if p_over is None:
+        return None
+    return implied_lambda_from_line(line, p_over)
 
 
 def _odds_get(path, params=None, timeout=20):
@@ -290,6 +343,7 @@ def join_sportsbook_odds(pred_df, odds_df):
         df['book_implied'] = None
         df['model_prob_book_line'] = None
         df['edge_book'] = None
+        df['adj_k'] = df['pred_k']
         return df.drop(columns=['name_norm'])
 
     overs = odds_df[odds_df['side'] == 'Over']
@@ -319,11 +373,24 @@ def join_sportsbook_odds(pred_df, odds_df):
     df = df.merge(best_side('Over'), on='name_norm', how='left')
     df = df.merge(best_side('Under'), on='name_norm', how='left').drop(columns=['name_norm'])
 
+    # ── Blend the model's projection with the market-implied projection ────
+    # ADJ Ks = MODEL_WEIGHT * PROJ Ks + (1 - MODEL_WEIGHT) * market-implied Ks.
+    # Falls back to the raw model projection when no book line is available.
+    def _adj_k(r):
+        if pd.isna(r['book_line']):
+            return r['pred_k']
+        m_k = market_implied_k(r['book_line'], r.get('over_implied'), r.get('under_implied'))
+        if m_k is None:
+            return r['pred_k']
+        return MODEL_WEIGHT * r['pred_k'] + (1 - MODEL_WEIGHT) * m_k
+
+    df['adj_k'] = df.apply(_adj_k, axis=1)
+
     def _pick_side(r):
         if pd.isna(r['book_line']):
             return pd.Series([None, None, None, None, None, None])
 
-        p_over = model_prob_over(r['pred_k'], r['book_line'])
+        p_over = model_prob_over(r['adj_k'], r['book_line'])
         p_under = 1.0 - p_over
 
         edge_over = (p_over - r['over_implied']) if pd.notna(r['over_implied']) else None
@@ -419,7 +486,7 @@ def join_prizepicks(pred_df, pp_df):
 
     has_pp = df['pp_line'].notna()
     if has_pp.any():
-        p_over = df.loc[has_pp].apply(lambda r: model_prob_over(r['pred_k'], r['pp_line']), axis=1)
+        p_over = df.loc[has_pp].apply(lambda r: model_prob_over(r['adj_k'], r['pp_line']), axis=1)
         df.loc[has_pp, 'pp_side'] = (p_over >= 0.5).map({True: 'over', False: 'under'})
         df.loc[has_pp, 'model_prob_pp_line'] = p_over.where(p_over >= 0.5, 1.0 - p_over)
 
@@ -442,8 +509,12 @@ def print_edge_sanity_check(df):
     print(f"With PrizePicks line:      {n_pp}")
 
     if n_book:
+        adj_diff = (df.loc[df['has_line'] == 1, 'adj_k'] - df.loc[df['has_line'] == 1, 'pred_k']).dropna()
+        print(f"\nModel/market blend (MODEL_WEIGHT={MODEL_WEIGHT}, ADJ Ks vs PROJ Ks):")
+        print(f"  Mean diff={adj_diff.mean():+.3f}  Mean |diff|={adj_diff.abs().mean():.3f}")
+
         e = df.loc[df['has_line'] == 1, 'edge_book'].dropna()
-        print(f"\nSportsbook edge (model_prob_for_side - book_implied_for_side):")
+        print(f"\nSportsbook edge (blended_prob_for_side - book_implied_for_side):")
         print(f"  Min={e.min():+.1%}  Median={e.median():+.1%}  Mean={e.mean():+.1%}  Max={e.max():+.1%}")
         n_pos = (e > 0.05).sum()
         print(f"  Edge > +5%: {n_pos}/{len(e)}")
@@ -483,7 +554,7 @@ def save_output(df, date_str):
     out_cols = [
         'game_date', 'game_pk', 'game_time', 'venue', 'away_team', 'home_team',
         'pitcher', 'pitcher_name', 'team', 'opp_team', 'is_home', 'day_night',
-        'pred_k', 'p_over_4.5', 'p_over_5.5', 'p_over_6.5', 'p_over_7.5', 'p_over_8.5',
+        'pred_k', 'adj_k', 'p_over_4.5', 'p_over_5.5', 'p_over_6.5', 'p_over_7.5', 'p_over_8.5',
         'has_line', 'book_line', 'book_side', 'best_book', 'best_odds', 'book_implied',
         'model_prob_book_line', 'edge_book',
         'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',

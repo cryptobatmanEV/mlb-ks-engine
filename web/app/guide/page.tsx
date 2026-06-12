@@ -44,7 +44,11 @@ const SUBHEAD: React.CSSProperties = {
 const GLOSSARY: { term: string; def: string }[] = [
   {
     term: 'PROJ Ks',
-    def: "The model's projected strikeout total for this start (Poisson lambda). This is the expected value, not a hard line.",
+    def: "The model's raw projected strikeout total for this start (Poisson lambda), based purely on pitcher-specific data. This is the expected value, not a hard line.",
+  },
+  {
+    term: 'ADJ Ks',
+    def: "PROJ Ks blended with the market-implied strikeout total backed out of the sportsbook line and price (60% model / 40% market by default). This blended number is what all edges are calculated from. With no book line available, ADJ Ks equals PROJ Ks.",
   },
   {
     term: 'BOOK O/U',
@@ -52,7 +56,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'BOOK EDGE',
-    def: "Model's P(actual Ks > book line) minus the book's implied probability from its price. Green = model sees more value than the book. Red = book is priced above the model's estimate.",
+    def: "P(actual Ks > book line) using ADJ Ks, minus the book's implied probability from its price. Green = model sees more value than the book. Red = book is priced above the model's estimate. Because ADJ Ks already partially agrees with the market, this edge is naturally smaller and more realistic than a raw-model edge would be.",
   },
   {
     term: 'PP LINE',
@@ -60,15 +64,15 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'PP EDGE',
-    def: "Model's P(actual Ks > PP line) minus 50% (PrizePicks pick'em pricing). Green = model favors the over.",
+    def: "P(actual Ks > PP line) using ADJ Ks, minus 50% (PrizePicks pick'em pricing). Green = model favors the over.",
   },
   {
     term: 'MY LINE',
-    def: 'Enter any strikeout total you found at a book or app. The model recalculates P(over) for that exact number using a Poisson distribution around PROJ Ks.',
+    def: 'Enter any strikeout total you found at a book or app. The model recalculates P(over) for that exact number using a Poisson distribution around ADJ Ks.',
   },
   {
     term: 'MY EDGE',
-    def: "Model's P(actual Ks > MY LINE) minus 50%, based on the custom total you entered.",
+    def: "P(actual Ks > MY LINE) using ADJ Ks, minus 50%, based on the custom total you entered.",
   },
   {
     term: 'K/9 L10',
@@ -155,12 +159,15 @@ export default function GuidePage() {
           </p>
           <div style={SUBHEAD}>FROM PROJECTION TO EDGE</div>
           <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
-            PROJ Ks is treated as the lambda (mean) of a Poisson distribution. For any strikeout line
-            -- a sportsbook line, a PrizePicks line, or a custom MY LINE -- the model computes
-            P(actual Ks &gt; line) directly from that distribution. EDGE is this model probability
-            minus the implied probability from the price (or 50% for pick&apos;em-style PrizePicks
-            and custom lines). Positive edge means the model thinks the over is more likely than the
-            price suggests.
+            When a sportsbook line is available, the book&apos;s price is de-vigged and inverted to back
+            out the market&apos;s own implied strikeout total. PROJ Ks is blended with that market-implied
+            total (60% model / 40% market by default) to produce ADJ Ks -- with no book line, ADJ Ks
+            simply equals PROJ Ks. ADJ Ks is then treated as the lambda (mean) of a Poisson distribution.
+            For any strikeout line -- a sportsbook line, a PrizePicks line, or a custom MY LINE -- the
+            model computes P(actual Ks &gt; line) directly from that distribution. EDGE is this
+            probability minus the implied probability from the price (or 50% for pick&apos;em-style
+            PrizePicks and custom lines). Positive edge means the model thinks the over is more likely
+            than the price suggests, after accounting for the market&apos;s own information.
           </p>
         </div>
 

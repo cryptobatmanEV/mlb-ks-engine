@@ -286,7 +286,7 @@ export default async function TrackerPage() {
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
           P/L SETTLES AFTER LOG RUN &nbsp;&middot;&nbsp;
-          EDGE = MODEL P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
+          EDGE = ADJ-Ks-BASED P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
           RESULTS UPDATED DAILY
         </div>
 

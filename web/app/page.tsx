@@ -167,7 +167,8 @@ export default async function Home({
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
           PROJ Ks = MODEL LAMBDA &nbsp;&middot;&nbsp;
-          EDGE = MODEL P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
+          ADJ Ks = PROJ Ks BLENDED WITH MARKET-IMPLIED Ks &nbsp;&middot;&nbsp;
+          EDGE = ADJ-Ks-BASED P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
           P/L SETTLES AFTER LOG RUN
         </div>
 
