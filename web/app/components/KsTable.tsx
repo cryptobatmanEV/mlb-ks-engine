@@ -468,17 +468,20 @@ const COLS: ColDef[] = [
 const ACTUAL_K_COL: ColDef = { key: 'actual_k', label: 'ACTUAL Ks', align: 'right' };
 const RESULT_COL:   ColDef = { key: null,       label: 'RESULT',    align: 'right' };
 
-function resultForRow(row: Row): { text: string; color: string } | null {
-  if (row.actual_k == null || !row.has_line || row.book_line == null || row.book_side == null) {
-    return null;
-  }
-  if (row.actual_k === row.book_line) return { text: 'P', color: 'var(--ev-gold)' };
-  const hit = row.book_side === 'under'
-    ? row.actual_k < row.book_line
-    : row.actual_k > row.book_line;
+// Compares an actual K total against a recommended line/side. Shared by the
+// main table (book line/side) and AI Picks (whichever line/side was tracked).
+function resultForLine(actualK: number | null, line: number, side: string): { text: string; color: string } | null {
+  if (actualK == null) return null;
+  if (actualK === line) return { text: 'P', color: 'var(--ev-gold)' };
+  const hit = side === 'under' ? actualK < line : actualK > line;
   return hit
     ? { text: 'W', color: 'var(--ev-green)' }
     : { text: 'L', color: 'var(--ev-red)' };
+}
+
+function resultForRow(row: Row): { text: string; color: string } | null {
+  if (!row.has_line || row.book_line == null || row.book_side == null) return null;
+  return resultForLine(row.actual_k, row.book_line, row.book_side);
 }
 
 // ── AI Picks ───────────────────────────────────────────────────────────────
@@ -538,6 +541,7 @@ function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
   const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
   const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
   const playSide     = pick.trackSide === 'under' ? 'U' : 'O';
+  const result       = row.actual_k != null ? resultForLine(row.actual_k, pick.trackLine, pick.trackSide) : null;
 
   return (
     <div style={{
@@ -571,14 +575,23 @@ function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '28px', alignItems: 'flex-end' }}>
         <div>
           <div style={LABEL}>THE PLAY</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'var(--ev-gold)', marginTop: '4px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'var(--ev-gold)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '10px' }}>
             {playSide} {pick.trackLine}
-            <span style={{ fontSize: '11px', color: 'var(--ev-blue)', marginLeft: '10px', fontWeight: 400 }}>
+            <span style={{ fontSize: '11px', color: 'var(--ev-blue)', fontWeight: 400 }}>
               {fmtOdds(pick.trackOdds)}
               {pick.trackSource === 'book' && row.best_book && (
                 <span style={{ color: 'rgba(255,255,255,0.18)', marginLeft: '4px' }}>{row.best_book}</span>
               )}
             </span>
+            {result && (
+              <span style={{
+                fontSize: '11px', fontWeight: 700, color: result.color,
+                border: `1px solid ${result.color}`, borderRadius: '2px',
+                padding: '1px 6px', letterSpacing: '1px',
+              }}>
+                {result.text}
+              </span>
+            )}
           </div>
         </div>
 
@@ -588,6 +601,15 @@ function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
             {row.pred_k.toFixed(2)} → {(row.adj_k ?? row.pred_k).toFixed(2)}
           </div>
         </div>
+
+        {row.actual_k != null && (
+          <div>
+            <div style={LABEL}>ACTUAL Ks</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--ev-text)', marginTop: '4px', fontWeight: 700 }}>
+              {row.actual_k}
+            </div>
+          </div>
+        )}
 
         <div>
           <div style={LABEL}>BOOK EDGE</div>
