@@ -484,53 +484,48 @@ function resultForRow(row: Row): { text: string; color: string } | null {
 // ── AI Picks ───────────────────────────────────────────────────────────────
 
 const AI_PICK_LIMIT = 5;
-const AI_EDGE_MIN = 0.03;
+const AI_MIN_SWSTR = 0.20;
+const AI_MIN_K9 = 7.0;
 
 type AiPick = {
   row: Row;
   compositeScore: number;
-  edgeScore: number;
-  edgeSource: 'book' | 'pp';
   reason: string;
+  trackSource: 'book' | 'pp' | 'model';
   trackLine: number;
   trackSide: string;
   trackOdds: number;
   trackEdge: number | null;
 };
 
-// Builds a one-line "why this pick" summary from whichever scoring components
-// contributed most. Falls back to the raw edge if nothing else stands out.
+// Builds a one-line "why this pick" summary, leading with projection-quality
+// and matchup factors (stuff, recent K production, opponent) and treating
+// market edge as a secondary, lower-priority signal.
 function buildPickReason(
   row: Row,
-  edgeScore: number,
-  edgeSource: 'book' | 'pp',
   swstrBonus: number,
-  oppKBonus: number,
   k9Bonus: number,
-  agreementPenalty: number,
+  agreementBonus: number,
+  oppKBonus: number,
+  edgeBonus: number,
 ): string {
   const factors: { label: string; weight: number }[] = [];
 
-  if (swstrBonus > 0.04 && row.p_swstr_pct_10 != null) {
-    factors.push({ label: `elite SWSTR% (${fmtPct1(row.p_swstr_pct_10)})`, weight: swstrBonus });
+  if (row.p_swstr_pct_10 != null) {
+    factors.push({ label: `elite SWSTR% (${fmtPct1(row.p_swstr_pct_10)})`, weight: swstrBonus + 1.0 });
   }
-  if (oppKBonus > 0.02 && row.opp_k_pct_15 != null) {
-    factors.push({ label: `favorable OPP K% (${fmtPct1(row.opp_k_pct_15)})`, weight: oppKBonus });
+  if (oppKBonus > 0 && row.opp_k_pct_15 != null) {
+    factors.push({ label: `favorable OPP K% (${fmtPct1(row.opp_k_pct_15)})`, weight: oppKBonus + 0.8 });
   }
-  if (k9Bonus > 0.02 && row.p_k_per9_10 != null) {
-    factors.push({ label: `high K/9 (${fmtNum(row.p_k_per9_10, 1)})`, weight: k9Bonus });
+  if (k9Bonus > 0.03 && row.p_k_per9_10 != null) {
+    factors.push({ label: `strong K/9 L10 (${fmtNum(row.p_k_per9_10, 1)})`, weight: k9Bonus + 0.6 });
   }
-  if (agreementPenalty > -0.075) {
-    factors.push({ label: 'model/market consensus', weight: 0.075 + agreementPenalty });
+  if (agreementBonus > 0.35) {
+    factors.push({ label: 'model/market consensus', weight: agreementBonus + 0.4 });
   }
-  if (edgeScore > 0.07) {
-    const src = edgeSource === 'book' ? 'sportsbook' : 'PrizePicks';
-    factors.push({ label: `strong ${src} edge (+${(edgeScore * 100).toFixed(1)}%)`, weight: edgeScore });
-  }
-
-  if (factors.length === 0) {
-    const src = edgeSource === 'book' ? 'sportsbook' : 'PrizePicks';
-    return `Positive ${src} edge (+${(edgeScore * 100).toFixed(1)}%)`;
+  if (edgeBonus > 0.015) {
+    const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
+    factors.push({ label: `positive market edge (+${edgePct}%)`, weight: edgeBonus });
   }
 
   factors.sort((a, b) => b.weight - a.weight);
@@ -580,7 +575,7 @@ function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
             {playSide} {pick.trackLine}
             <span style={{ fontSize: '11px', color: 'var(--ev-blue)', marginLeft: '10px', fontWeight: 400 }}>
               {fmtOdds(pick.trackOdds)}
-              {pick.edgeSource === 'book' && row.best_book && (
+              {pick.trackSource === 'book' && row.best_book && (
                 <span style={{ color: 'rgba(255,255,255,0.18)', marginLeft: '4px' }}>{row.best_book}</span>
               )}
             </span>
@@ -723,55 +718,55 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   }, [filtered]);
 
   // AI Picks: curated top plays for the day, independent of search/filters,
-  // ranked by a composite confidence score (edge + stuff + agreement + matchup).
+  // ranked by projection confidence -- pitch quality (SWSTR%), recent K
+  // production, model/market agreement, and matchup, with market edge as a
+  // secondary factor.
   const aiPicks = useMemo((): AiPick[] => {
     const candidates: AiPick[] = [];
 
     for (const row of rows) {
-      if (row.p_swstr_pct_10 == null) continue;
+      if (row.p_swstr_pct_10 == null || row.p_k_per9_10 == null) continue;
+      if (row.p_swstr_pct_10 <= AI_MIN_SWSTR || row.p_k_per9_10 <= AI_MIN_K9) continue;
 
-      const bookEdge = row.has_line ? row.edge_book : null;
-      const ppEdge   = row.pp_line != null ? row.edge_pp : null;
-      const qualifies =
-        (bookEdge != null && bookEdge > AI_EDGE_MIN) ||
-        (ppEdge != null && ppEdge > AI_EDGE_MIN);
-      if (!qualifies) continue;
+      const adjK = row.adj_k ?? row.pred_k;
 
-      let edgeSource: 'book' | 'pp';
-      let edgeScore: number;
+      let trackSource: 'book' | 'pp' | 'model';
       let trackLine: number;
       let trackSide: string;
       let trackOdds: number;
       let trackEdge: number | null;
 
-      if (bookEdge != null && row.book_line != null) {
-        edgeSource = 'book';
-        edgeScore  = bookEdge;
-        trackLine  = row.book_line;
-        trackSide  = row.book_side ?? 'over';
-        trackOdds  = row.best_odds ?? -110;
-        trackEdge  = bookEdge;
-      } else if (ppEdge != null && row.pp_line != null) {
-        edgeSource = 'pp';
-        edgeScore  = ppEdge;
-        trackLine  = row.pp_line;
-        trackSide  = row.pp_side ?? 'over';
-        trackOdds  = -110;
-        trackEdge  = ppEdge;
+      if (row.has_line && row.book_line != null) {
+        trackSource = 'book';
+        trackLine   = row.book_line;
+        trackSide   = row.book_side ?? 'over';
+        trackOdds   = row.best_odds ?? -110;
+        trackEdge   = row.edge_book;
+      } else if (row.pp_line != null) {
+        trackSource = 'pp';
+        trackLine   = row.pp_line;
+        trackSide   = row.pp_side ?? 'over';
+        trackOdds   = -110;
+        trackEdge   = row.edge_pp;
       } else {
-        continue;
+        trackSource = 'model';
+        trackLine   = Math.floor(row.pred_k) + 0.5;
+        trackSide   = 'over';
+        trackOdds   = -110;
+        trackEdge   = null;
       }
 
-      const adjK = row.adj_k ?? row.pred_k;
-      const swstrBonus       = (row.p_swstr_pct_10 - 0.20) * 2;
-      const agreementPenalty = -Math.abs(row.pred_k - adjK) * 0.5;
-      const oppKBonus        = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - 0.22) * 1.5 : 0;
-      const k9Bonus          = row.p_k_per9_10  != null ? (row.p_k_per9_10  - 8.0)  * 0.02 : 0;
+      const swstrBonus     = (row.p_swstr_pct_10 - 0.20) * 5;
+      const k9Bonus        = (row.p_k_per9_10 - 7.0) * 0.03;
+      const agreementBonus = (1 - Math.abs(row.pred_k - adjK)) * 0.5;
+      const oppKBonus      = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - 0.20) * 2 : 0;
+      const adjKBonus      = adjK * 0.02;
+      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, 0) * 0.3;
 
-      const compositeScore = edgeScore + swstrBonus + agreementPenalty + oppKBonus + k9Bonus;
-      const reason = buildPickReason(row, edgeScore, edgeSource, swstrBonus, oppKBonus, k9Bonus, agreementPenalty);
+      const compositeScore = swstrBonus + k9Bonus + agreementBonus + oppKBonus + adjKBonus + edgeBonus;
+      const reason = buildPickReason(row, swstrBonus, k9Bonus, agreementBonus, oppKBonus, edgeBonus);
 
-      candidates.push({ row, compositeScore, edgeScore, edgeSource, reason, trackLine, trackSide, trackOdds, trackEdge });
+      candidates.push({ row, compositeScore, reason, trackSource, trackLine, trackSide, trackOdds, trackEdge });
     }
 
     candidates.sort((a, b) => b.compositeScore - a.compositeScore);
@@ -897,6 +892,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
       {/* AI Picks panel */}
       {viewMode === 'ai' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ ...LABEL, fontSize: '10px' }}>RANKED BY PROJECTION CONFIDENCE</div>
           {aiPicks.length === 0 ? (
             <div style={{
               background: 'var(--ev-card)', border: '1px solid var(--ev-border)', borderRadius: '2px',
@@ -904,7 +900,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '1.5px',
               textTransform: 'uppercase', color: 'var(--ev-dim)',
             }}>
-              No qualifying plays right now — check back once more lines are posted.
+              No pitchers meet the SWSTR% / K-9 thresholds on today&apos;s slate.
             </div>
           ) : (
             aiPicks.map((pick, i) => (
