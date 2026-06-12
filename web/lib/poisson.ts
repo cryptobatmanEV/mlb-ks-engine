@@ -12,8 +12,15 @@ export function poissonCdf(k: number, lambda: number): number {
   return cdf;
 }
 
-// P(actual K > line), matching the Python side's `1 - poisson.cdf(floor(line), lambda)`.
+// Shrinkage applied to Poisson probabilities to correct for mild
+// overconfidence at large edges -- must match predict/fair_odds.py's
+// EDGE_SCALE so "MY EDGE" is on the same scale as BOOK EDGE / PP EDGE.
+const EDGE_SCALE = 0.90;
+
+// P(actual K > line), matching the Python side's
+// `0.5 + (1 - poisson.cdf(floor(line), lambda) - 0.5) * EDGE_SCALE`.
 export function probOver(line: number, lambda: number): number {
   const floor = Math.floor(line);
-  return 1 - poissonCdf(floor, lambda);
+  const pOver = 1 - poissonCdf(floor, lambda);
+  return 0.5 + (pOver - 0.5) * EDGE_SCALE;
 }

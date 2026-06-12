@@ -109,9 +109,22 @@ def norm_name(name):
     return re.sub(r'[^a-z ]', '', name.lower().strip())
 
 
+# Shrinkage applied to Poisson-derived probabilities to correct for mild
+# overconfidence in large edges. Derived from models/edge_calibration.py:
+# a negative-binomial distribution (overdispersion alpha ~0.024, estimated
+# from holdout residuals) did not calibrate meaningfully better than Poisson,
+# so instead probabilities are pulled toward 0.5 by this factor. On the
+# 2025 H2 + 2026 holdout this took the 10%+ predicted-edge bucket from
+# predicted=0.692/actual=0.675 (gap +0.017) to predicted=0.679/actual=0.675
+# (gap +0.003), with similar improvements in the other edge buckets.
+EDGE_SCALE = 0.90
+
+
 def model_prob_over(pred_k, line):
-    """P(actual K > line) under Poisson(pred_k)."""
-    return float(1 - poisson.cdf(int(line), pred_k))
+    """P(actual K > line), Poisson(pred_k) shrunk toward 0.5 by EDGE_SCALE
+    to correct for mild overconfidence at large predicted edges."""
+    p_over = float(1 - poisson.cdf(int(line), pred_k))
+    return 0.5 + (p_over - 0.5) * EDGE_SCALE
 
 
 def _odds_get(path, params=None, timeout=20):

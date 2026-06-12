@@ -34,12 +34,12 @@ import joblib
 import numpy as np
 import pandas as pd
 import requests
-from scipy.stats import poisson
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ingestion.fetch_weather import fetch_forecast
 from models.train import FEATURES, ROLLING_STATS, WINDOWS
+from predict.fair_odds import model_prob_over
 
 MODEL_PATH = 'models/saved/ks_model.pkl'
 PITCHER_PATH = 'data/processed/pitcher_features.parquet'
@@ -331,8 +331,7 @@ def score(df, bundle):
     df['pred_k'] = pred
 
     for line in LINES:
-        floor = int(line)
-        df[f'p_over_{line}'] = 1 - poisson.cdf(floor, df['pred_k'])
+        df[f'p_over_{line}'] = df['pred_k'].apply(lambda pk: model_prob_over(pk, line))
 
     return df
 

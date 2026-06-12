@@ -394,14 +394,37 @@ function toISODate(d: unknown): string {
   return String(d).slice(0, 10);
 }
 
+// Edges above this size are flagged as suspiciously large rather than shown
+// as a confident green play -- see models/edge_calibration.py.
+const HIGH_VARIANCE_EDGE = 0.08;
+
 function edgeDisplay(edge: number | null, show: boolean) {
-  if (!show || edge == null) return { text: '—', color: 'var(--ev-dim)', weight: 400 };
+  if (!show || edge == null) return { text: '—', color: 'var(--ev-dim)', weight: 400, highVariance: false };
   const sign = edge > 0 ? '+' : '';
   const text = `${sign}${(edge * 100).toFixed(1)}%`;
-  if (edge > 0.05)  return { text, color: 'var(--ev-green)', weight: 600 };
-  if (edge > 0)     return { text, color: 'var(--ev-green)', weight: 400 };
-  if (edge > -0.03) return { text, color: 'var(--ev-muted)',  weight: 400 };
-                    return { text, color: 'var(--ev-red)',    weight: 400 };
+  if (edge > HIGH_VARIANCE_EDGE) return { text, color: 'var(--ev-gold)', weight: 600, highVariance: true };
+  if (edge > 0.05)  return { text, color: 'var(--ev-green)', weight: 600, highVariance: false };
+  if (edge > 0)     return { text, color: 'var(--ev-green)', weight: 400, highVariance: false };
+  if (edge > -0.03) return { text, color: 'var(--ev-muted)',  weight: 400, highVariance: false };
+                    return { text, color: 'var(--ev-red)',    weight: 400, highVariance: false };
+}
+
+// Small badge shown under an edge value when it exceeds HIGH_VARIANCE_EDGE.
+function HighVarianceBadge() {
+  return (
+    <div
+      title="This edge is unusually large for sports betting -- double-check the line and projection before betting it."
+      style={{
+        fontSize:      '8px',
+        letterSpacing: '1px',
+        color:         'var(--ev-gold)',
+        marginTop:     '2px',
+        whiteSpace:    'nowrap',
+      }}
+    >
+      ⚠ VERIFY
+    </div>
+  );
 }
 
 function parseLineInput(raw: string): number | null {
@@ -833,6 +856,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {/* BOOK EDGE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                       {bookEdgeDisp.text}
+                      {bookEdgeDisp.highVariance && <HighVarianceBadge />}
                     </td>
 
                     {/* PP LINE */}
@@ -845,6 +869,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {/* PP EDGE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
                       {ppEdgeDisp.text}
+                      {ppEdgeDisp.highVariance && <HighVarianceBadge />}
                     </td>
 
                     {/* MY LINE */}
@@ -877,6 +902,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       {customNum != null && mySide && myEdgeDisp.text !== '—'
                         ? `${mySide === 'under' ? 'U' : 'O'} ${myEdgeDisp.text}`
                         : myEdgeDisp.text}
+                      {myEdgeDisp.highVariance && <HighVarianceBadge />}
                     </td>
 
                     {/* K/9 L10 */}
