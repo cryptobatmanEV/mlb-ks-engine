@@ -462,6 +462,159 @@ const COLS: ColDef[] = [
   { key: null,              label: '',          align: 'right' },
 ];
 
+// ── AI Picks ───────────────────────────────────────────────────────────────
+
+const AI_PICK_LIMIT = 5;
+const AI_EDGE_MIN = 0.03;
+
+type AiPick = {
+  row: Row;
+  compositeScore: number;
+  edgeScore: number;
+  edgeSource: 'book' | 'pp';
+  reason: string;
+  trackLine: number;
+  trackSide: string;
+  trackOdds: number;
+  trackEdge: number | null;
+};
+
+// Builds a one-line "why this pick" summary from whichever scoring components
+// contributed most. Falls back to the raw edge if nothing else stands out.
+function buildPickReason(
+  row: Row,
+  edgeScore: number,
+  edgeSource: 'book' | 'pp',
+  swstrBonus: number,
+  oppKBonus: number,
+  k9Bonus: number,
+  agreementPenalty: number,
+): string {
+  const factors: { label: string; weight: number }[] = [];
+
+  if (swstrBonus > 0.04 && row.p_swstr_pct_10 != null) {
+    factors.push({ label: `elite SWSTR% (${fmtPct1(row.p_swstr_pct_10)})`, weight: swstrBonus });
+  }
+  if (oppKBonus > 0.02 && row.opp_k_pct_15 != null) {
+    factors.push({ label: `favorable OPP K% (${fmtPct1(row.opp_k_pct_15)})`, weight: oppKBonus });
+  }
+  if (k9Bonus > 0.02 && row.p_k_per9_10 != null) {
+    factors.push({ label: `high K/9 (${fmtNum(row.p_k_per9_10, 1)})`, weight: k9Bonus });
+  }
+  if (agreementPenalty > -0.075) {
+    factors.push({ label: 'model/market consensus', weight: 0.075 + agreementPenalty });
+  }
+  if (edgeScore > 0.07) {
+    const src = edgeSource === 'book' ? 'sportsbook' : 'PrizePicks';
+    factors.push({ label: `strong ${src} edge (+${(edgeScore * 100).toFixed(1)}%)`, weight: edgeScore });
+  }
+
+  if (factors.length === 0) {
+    const src = edgeSource === 'book' ? 'sportsbook' : 'PrizePicks';
+    return `Positive ${src} edge (+${(edgeScore * 100).toFixed(1)}%)`;
+  }
+
+  factors.sort((a, b) => b.weight - a.weight);
+  const top = factors.slice(0, 3).map(f => f.label);
+  return top[0].charAt(0).toUpperCase() + top[0].slice(1) + (top.length > 1 ? ', ' + top.slice(1).join(', ') : '');
+}
+
+function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
+  const { row } = pick;
+  const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
+  const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
+  const playSide     = pick.trackSide === 'under' ? 'U' : 'O';
+
+  return (
+    <div style={{
+      background:    'var(--ev-card)',
+      border:        '1px solid var(--ev-border)',
+      borderRadius:  '2px',
+      padding:       '16px 18px',
+      display:       'flex',
+      flexDirection: 'column',
+      gap:           '12px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '2px', color: 'var(--ev-green)', fontWeight: 700 }}>
+            #{rank}
+          </span>
+          <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '16px', color: 'var(--ev-text)' }}>
+            {row.pitcher_name}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)' }}>
+            {row.team} {row.is_home ? 'vs' : '@'} {row.opp_team}
+          </span>
+        </div>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--ev-dim)' }}>
+          {fmtGameTime(row.game_time)}
+        </span>
+      </div>
+
+      {/* Play + projections + edges */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '28px', alignItems: 'flex-end' }}>
+        <div>
+          <div style={LABEL}>THE PLAY</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'var(--ev-gold)', marginTop: '4px' }}>
+            {playSide} {pick.trackLine}
+            <span style={{ fontSize: '11px', color: 'var(--ev-blue)', marginLeft: '10px', fontWeight: 400 }}>
+              {fmtOdds(pick.trackOdds)}
+              {pick.edgeSource === 'book' && row.best_book && (
+                <span style={{ color: 'rgba(255,255,255,0.18)', marginLeft: '4px' }}>{row.best_book}</span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div style={LABEL}>PROJ Ks → ADJ Ks</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--ev-text)', marginTop: '4px' }}>
+            {row.pred_k.toFixed(2)} → {(row.adj_k ?? row.pred_k).toFixed(2)}
+          </div>
+        </div>
+
+        <div>
+          <div style={LABEL}>BOOK EDGE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
+            {bookEdgeDisp.text}
+          </div>
+        </div>
+
+        <div>
+          <div style={LABEL}>PP EDGE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
+            {ppEdgeDisp.text}
+          </div>
+        </div>
+      </div>
+
+      {/* Reason */}
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)', lineHeight: 1.6, fontStyle: 'italic' }}>
+        {pick.reason}
+      </div>
+
+      {/* TRACK */}
+      <div>
+        <KsTrackButton
+          gameDate={toISODate(row.game_date)}
+          gamePk={row.game_pk}
+          pitcher={row.pitcher}
+          pitcherName={row.pitcher_name}
+          team={row.team}
+          oppTeam={row.opp_team}
+          predK={row.pred_k}
+          line={pick.trackLine}
+          side={pick.trackSide}
+          odds={pick.trackOdds}
+          edge={pick.trackEdge}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function KsTable({ rows }: { rows: Row[] }) {
@@ -471,7 +624,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const [evOnly,         setEvOnly]         = useState(false);
   const [expandedRow,    setExpandedRow]    = useState<string | null>(null);
   const [searchQuery,    setSearchQuery]    = useState('');
-  const [viewMode,       setViewMode]       = useState<'edge' | 'game'>('edge');
+  const [viewMode,       setViewMode]       = useState<'edge' | 'game' | 'ai'>('edge');
 
   function handleSort(key: SortKey | null) {
     if (!key) return;
@@ -550,6 +703,62 @@ export default function KsTable({ rows }: { rows: Row[] }) {
     return Array.from(gameMap.values()).sort((a, b) => b[0].pred_k - a[0].pred_k);
   }, [filtered]);
 
+  // AI Picks: curated top plays for the day, independent of search/filters,
+  // ranked by a composite confidence score (edge + stuff + agreement + matchup).
+  const aiPicks = useMemo((): AiPick[] => {
+    const candidates: AiPick[] = [];
+
+    for (const row of rows) {
+      if (row.p_swstr_pct_10 == null) continue;
+
+      const bookEdge = row.has_line ? row.edge_book : null;
+      const ppEdge   = row.pp_line != null ? row.edge_pp : null;
+      const qualifies =
+        (bookEdge != null && bookEdge > AI_EDGE_MIN) ||
+        (ppEdge != null && ppEdge > AI_EDGE_MIN);
+      if (!qualifies) continue;
+
+      let edgeSource: 'book' | 'pp';
+      let edgeScore: number;
+      let trackLine: number;
+      let trackSide: string;
+      let trackOdds: number;
+      let trackEdge: number | null;
+
+      if (bookEdge != null && row.book_line != null) {
+        edgeSource = 'book';
+        edgeScore  = bookEdge;
+        trackLine  = row.book_line;
+        trackSide  = row.book_side ?? 'over';
+        trackOdds  = row.best_odds ?? -110;
+        trackEdge  = bookEdge;
+      } else if (ppEdge != null && row.pp_line != null) {
+        edgeSource = 'pp';
+        edgeScore  = ppEdge;
+        trackLine  = row.pp_line;
+        trackSide  = row.pp_side ?? 'over';
+        trackOdds  = -110;
+        trackEdge  = ppEdge;
+      } else {
+        continue;
+      }
+
+      const adjK = row.adj_k ?? row.pred_k;
+      const swstrBonus       = (row.p_swstr_pct_10 - 0.20) * 2;
+      const agreementPenalty = -Math.abs(row.pred_k - adjK) * 0.5;
+      const oppKBonus        = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - 0.22) * 1.5 : 0;
+      const k9Bonus          = row.p_k_per9_10  != null ? (row.p_k_per9_10  - 8.0)  * 0.02 : 0;
+
+      const compositeScore = edgeScore + swstrBonus + agreementPenalty + oppKBonus + k9Bonus;
+      const reason = buildPickReason(row, edgeScore, edgeSource, swstrBonus, oppKBonus, k9Bonus, agreementPenalty);
+
+      candidates.push({ row, compositeScore, edgeScore, edgeSource, reason, trackLine, trackSide, trackOdds, trackEdge });
+    }
+
+    candidates.sort((a, b) => b.compositeScore - a.compositeScore);
+    return candidates.slice(0, AI_PICK_LIMIT);
+  }, [rows]);
+
   type TableItem =
     | { type: 'row';    row: Row }
     | { type: 'header'; label: string; count: number; gamePk: number };
@@ -594,23 +803,25 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
       {/* Filter toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-        <button
-          onClick={() => setEvOnly(v => !v)}
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      '10px',
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            padding:       '5px 12px',
-            borderRadius:  '2px',
-            cursor:        'pointer',
-            background:    evOnly ? 'rgba(0, 220, 110, 0.12)' : 'transparent',
-            border:        evOnly ? '1px solid var(--ev-green)' : '1px solid rgba(255,255,255,0.12)',
-            color:         evOnly ? 'var(--ev-green)' : 'var(--ev-dim)',
-          }}
-        >
-          +EV ONLY
-        </button>
+        {viewMode !== 'ai' && (
+          <button
+            onClick={() => setEvOnly(v => !v)}
+            style={{
+              fontFamily:    'var(--font-mono)',
+              fontSize:      '10px',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              padding:       '5px 12px',
+              borderRadius:  '2px',
+              cursor:        'pointer',
+              background:    evOnly ? 'rgba(0, 220, 110, 0.12)' : 'transparent',
+              border:        evOnly ? '1px solid var(--ev-green)' : '1px solid rgba(255,255,255,0.12)',
+              color:         evOnly ? 'var(--ev-green)' : 'var(--ev-dim)',
+            }}
+          >
+            +EV ONLY
+          </button>
+        )}
 
         {/* View mode toggle */}
         <div style={{
@@ -619,7 +830,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
           borderRadius: '2px',
           overflow:     'hidden',
         }}>
-          {(['edge', 'game'] as const).map(mode => (
+          {(['edge', 'game', 'ai'] as const).map((mode, i) => (
             <button
               key={mode}
               onClick={() => setViewMode(mode)}
@@ -631,24 +842,47 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                 padding:       '5px 11px',
                 cursor:        'pointer',
                 border:        'none',
-                borderRight:   mode === 'edge' ? '1px solid rgba(255,255,255,0.12)' : 'none',
+                borderRight:   i < 2 ? '1px solid rgba(255,255,255,0.12)' : 'none',
                 background:    viewMode === mode ? 'rgba(255,255,255,0.07)' : 'transparent',
-                color:         viewMode === mode ? 'var(--ev-text)' : 'var(--ev-dim)',
+                color:         viewMode === mode
+                  ? (mode === 'ai' ? 'var(--ev-gold)' : 'var(--ev-text)')
+                  : 'var(--ev-dim)',
               }}
             >
-              {mode === 'edge' ? 'BY EDGE' : 'BY GAME'}
+              {mode === 'edge' ? 'BY EDGE' : mode === 'game' ? 'BY GAME' : 'AI PICKS'}
             </button>
           ))}
         </div>
 
         <span style={{ ...LABEL, fontSize: '10px' }}>
-          {evOnly
-            ? `SHOWING ${evCount} +EV PITCHER${evCount !== 1 ? 'S' : ''}`
-            : `${evCount} +EV / ${rows.length} TOTAL`}
+          {viewMode === 'ai'
+            ? `${aiPicks.length} CURATED PICK${aiPicks.length !== 1 ? 'S' : ''}`
+            : evOnly
+              ? `SHOWING ${evCount} +EV PITCHER${evCount !== 1 ? 'S' : ''}`
+              : `${evCount} +EV / ${rows.length} TOTAL`}
         </span>
       </div>
 
-      {/* Table */}
+      {/* AI Picks panel */}
+      {viewMode === 'ai' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {aiPicks.length === 0 ? (
+            <div style={{
+              background: 'var(--ev-card)', border: '1px solid var(--ev-border)', borderRadius: '2px',
+              padding: '32px', textAlign: 'center',
+              fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '1.5px',
+              textTransform: 'uppercase', color: 'var(--ev-dim)',
+            }}>
+              No qualifying plays right now — check back once more lines are posted.
+            </div>
+          ) : (
+            aiPicks.map((pick, i) => (
+              <AiPickCard key={`${pick.row.game_pk}-${pick.row.pitcher}`} pick={pick} rank={i + 1} />
+            ))
+          )}
+        </div>
+      ) : (
+      /* Table */
       <div style={{
         background: 'var(--ev-card)', border: '1px solid var(--ev-border)',
         borderRadius: '2px', overflowX: 'auto',
@@ -947,6 +1181,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
