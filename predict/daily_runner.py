@@ -27,6 +27,7 @@ Output: data/predictions/ks_predictions_YYYY-MM-DD.csv
 
 import os
 import sys
+import time
 from datetime import date, datetime
 
 import joblib
@@ -43,6 +44,7 @@ from models.train import FEATURES, ROLLING_STATS, WINDOWS
 MODEL_PATH = 'models/saved/ks_model.pkl'
 PITCHER_PATH = 'data/processed/pitcher_features.parquet'
 OPPONENT_PATH = 'data/processed/opponent_features.parquet'
+UMPIRE_LOOKUP_PATH = 'data/processed/umpire_lookup.parquet'
 PARK_PATH = 'data/processed/park_factors_k.csv'
 WEATHER_PATH = 'data/processed/weather.parquet'
 OUT_DIR = 'data/predictions'
@@ -76,16 +78,24 @@ def format_game_time_et(iso_str):
 
 
 def fetch_schedule(date_str):
-    """Return a list of dicts, one per probable starting pitcher today."""
+    """Return (DataFrame of probable starting pitchers, dict of per-game extras).
+
+    The extras dict maps game_pk -> {'home_lineup': [batter_id, ...9],
+    'away_lineup': [batter_id, ...9], 'hp_umpire_id': int or None}, pulled
+    from the same schedule call via hydrate=lineups,officials. Lineups are
+    often not posted yet for the early pipeline run, in which case the lists
+    are empty.
+    """
     print(f"Fetching schedule for {date_str}...")
     data = _mlb('schedule', {
         'sportId': 1,
         'date': date_str,
-        'hydrate': 'probablePitcher,team',
+        'hydrate': 'probablePitcher,team,lineups,officials',
         'gameType': 'R',
     })
 
     rows = []
+    game_extra = {}
     for d in data.get('dates', []):
         for g in d.get('games', []):
             game_pk = g['gamePk']
@@ -100,6 +110,15 @@ def fetch_schedule(date_str):
             away_abbr = _norm_abbr(away['team'].get('abbreviation', ''))
             home_name = home['team'].get('name', '')
             away_name = away['team'].get('name', '')
+
+            lineups = g.get('lineups', {})
+            hp = next((o for o in g.get('officials', [])
+                       if o.get('officialType') == 'Home Plate'), None)
+            game_extra[game_pk] = {
+                'home_lineup': [p['id'] for p in lineups.get('homePlayers', [])[:9]],
+                'away_lineup': [p['id'] for p in lineups.get('awayPlayers', [])[:9]],
+                'hp_umpire_id': hp['official']['id'] if hp else None,
+            }
 
             for side, team, opp_abbr, opp_name, is_home in (
                 (home, home_abbr, away_abbr, away_name, True),
@@ -126,7 +145,53 @@ def fetch_schedule(date_str):
                 })
 
     print(f"  {len(rows)} probable starting pitchers found")
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), game_extra
+
+
+def fetch_batter_season_k_pct(batter_id, season):
+    """SO / PA for a batter's current season, from MLB Stats API season hitting stats."""
+    try:
+        data = _mlb(f'people/{batter_id}/stats',
+                     {'stats': 'season', 'group': 'hitting', 'season': season})
+    except requests.RequestException:
+        return np.nan
+
+    splits = data.get('stats', [{}])[0].get('splits', [])
+    if not splits:
+        return np.nan
+
+    stat = splits[0].get('stat', {})
+    pa = stat.get('plateAppearances', 0) or 0
+    so = stat.get('strikeOuts', 0) or 0
+    if pa == 0:
+        return np.nan
+    return so / pa
+
+
+def get_lineup_k_pct(batter_ids, season, cache):
+    """Average season K% (SO/PA) across a lineup's confirmed starters.
+    NaN if no lineup is posted yet or no batter has any PA this season."""
+    if not batter_ids:
+        return np.nan
+
+    pcts = []
+    for bid in batter_ids:
+        if bid not in cache:
+            cache[bid] = fetch_batter_season_k_pct(bid, season)
+            time.sleep(0.1)
+        v = cache[bid]
+        if not np.isnan(v):
+            pcts.append(v)
+
+    return float(np.mean(pcts)) if pcts else np.nan
+
+
+def load_umpire_lookup():
+    """Per-umpire career ump_k_factor (their avg game-K vs league avg)."""
+    if os.path.exists(UMPIRE_LOOKUP_PATH):
+        df = pd.read_parquet(UMPIRE_LOOKUP_PATH)
+        return df.set_index('umpire_id')['ump_k_factor']
+    return pd.Series(dtype=float)
 
 
 def load_latest_pitcher_state():
@@ -172,9 +237,11 @@ def get_weather_for_date(date_str, home_teams):
     return found.set_index('home_team')
 
 
-def build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather):
+def build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather,
+                        game_extra, umpire_lookup):
     rows = []
     skipped = []
+    batter_k_cache = {}
 
     for _, g in sched.iterrows():
         pid = g['pitcher']
@@ -216,6 +283,15 @@ def build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather):
             row['opp_ops_15'] = np.nan
             row['opp_chase_pct_15'] = np.nan
             row['n_prior_team_games'] = np.nan
+
+        # Lineup-specific K rate: opposing team's confirmed starting 9
+        extra = game_extra.get(g['game_pk'], {})
+        opp_lineup = extra.get('away_lineup' if g['is_home'] else 'home_lineup', [])
+        row['lineup_k_pct'] = get_lineup_k_pct(opp_lineup, game_date.year, batter_k_cache)
+
+        # Umpire K tendency: today's home-plate umpire vs career average
+        hp_umpire_id = extra.get('hp_umpire_id')
+        row['ump_k_factor'] = umpire_lookup.get(int(hp_umpire_id), np.nan) if hp_umpire_id else np.nan
 
         # Park K factor (venue = today's home team)
         home = g['home_team']
@@ -274,7 +350,7 @@ def run(date_str=None):
           f"(bias_correction={bundle['bias_correction']:+.4f}, "
           f"{len(bundle['features'])} features)")
 
-    sched = fetch_schedule(date_str)
+    sched, game_extra = fetch_schedule(date_str)
     if sched.empty:
         print("\nNo probable pitchers found for this date. Nothing to do.")
         return pd.DataFrame()
@@ -283,8 +359,10 @@ def run(date_str=None):
     opp_state = load_latest_opponent_state()
     park_factors = load_park_factors()
     weather = get_weather_for_date(date_str, sched['home_team'].unique())
+    umpire_lookup = load_umpire_lookup()
 
-    feat_df = build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather)
+    feat_df = build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather,
+                                  game_extra, umpire_lookup)
     if feat_df.empty:
         print("\nNo pitchers with tracked history for this date. Nothing to score.")
         return pd.DataFrame()
@@ -299,6 +377,7 @@ def run(date_str=None):
          'pitcher', 'pitcher_name', 'team', 'opp_team', 'is_home', 'day_night',
          'rest_days', 'prev_pitches', 'n_prior_starts',
          'opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games',
+         'lineup_k_pct', 'ump_k_factor',
          'park_k_factor', 'temp_f', 'wind_speed', 'wind_favor', 'is_dome',
          'pred_k']
         + [f'p_over_{line}' for line in LINES]

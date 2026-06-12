@@ -2,6 +2,8 @@
 Build the final training dataset by joining together:
   - pitcher rolling features (data/processed/pitcher_features.parquet)
   - opponent rolling features (data/processed/opponent_features.parquet)
+  - lineup-specific K rate (data/processed/lineup_features.parquet)
+  - umpire K tendency (data/processed/umpire_features.parquet)
   - park K factors (data/processed/park_factors_k.csv)
   - weather / context (data/processed/weather.parquet)
 
@@ -17,6 +19,8 @@ import os
 
 PITCHER = 'data/processed/pitcher_features.parquet'
 OPPONENT = 'data/processed/opponent_features.parquet'
+LINEUP = 'data/processed/lineup_features.parquet'
+UMPIRE = 'data/processed/umpire_features.parquet'
 PARK = 'data/processed/park_factors_k.csv'
 WEATHER = 'data/processed/weather.parquet'
 OUT = 'data/processed/training_dataset.parquet'
@@ -41,6 +45,23 @@ def build():
     new_cols_opp = [c for c in df.columns if c not in before_cols]
     print(f"  Added columns: {new_cols_opp}")
     print(f"  Match rate: {df['opp_k_pct_15'].notna().mean():.2%}")
+
+    print("\nMerging lineup-specific K rate (on game_pk + opp_team == team)...")
+    lineup = pd.read_parquet(LINEUP).rename(columns={'team': 'opp_team'})
+    lineup = lineup.drop(columns=['n_lineup_matched'])
+    before_cols = set(df.columns)
+    df = df.merge(lineup, on=['game_pk', 'opp_team'], how='left')
+    new_cols_lineup = [c for c in df.columns if c not in before_cols]
+    print(f"  Added columns: {new_cols_lineup}")
+    print(f"  Match rate: {df['lineup_k_pct'].notna().mean():.2%}")
+
+    print("\nMerging umpire K tendency (on game_pk)...")
+    umpire = pd.read_parquet(UMPIRE)[['game_pk', 'ump_k_factor']]
+    before_cols = set(df.columns)
+    df = df.merge(umpire, on='game_pk', how='left')
+    new_cols_umpire = [c for c in df.columns if c not in before_cols]
+    print(f"  Added columns: {new_cols_umpire}")
+    print(f"  Match rate: {df['ump_k_factor'].notna().mean():.2%}")
 
     print("\nMerging park K factors (on park)...")
     park = pd.read_csv(PARK)[['park', 'park_k_factor']]
@@ -70,7 +91,7 @@ def build():
     print("\nRows per season:")
     print(df['season'].value_counts().sort_index())
 
-    new_feature_cols = new_cols_opp + new_cols_park + new_cols_weather
+    new_feature_cols = new_cols_opp + new_cols_lineup + new_cols_umpire + new_cols_park + new_cols_weather
     print(f"\nNull rates for newly joined feature columns (%):")
     print((df[new_feature_cols].isna().mean() * 100).round(2))
 
@@ -82,7 +103,8 @@ def build():
     # Final feature list = numeric columns useful for modeling (rolling, context, opponent, park, weather)
     feature_prefixes = ('p_k', 'p_bb', 'p_hr', 'p_whip', 'p_fip', 'p_swstr', 'p_called',
                          'p_chase', 'p_fp', 'p_fastball', 'p_slider', 'p_curveball',
-                         'p_changeup', 'p_other', 'p_avg', 'opp_', 'park_k_factor',
+                         'p_changeup', 'p_other', 'p_avg', 'opp_', 'lineup_k_pct',
+                         'ump_k_factor', 'park_k_factor',
                          'temp_f', 'wind_speed', 'wind_favor', 'is_dome',
                          'rest_days', 'prev_pitches', 'is_home', 'day_night',
                          'n_prior_starts', 'n_prior_team_games')

@@ -38,12 +38,18 @@ jobs:
       - name: Update pitcher game logs
         run: python -m ingestion.fetch_pitcher_game_logs
 
-      # 2. Recompute rolling pitcher/opponent features and rebuild the
-      #    joined training dataset from the refreshed Statcast store.
+      # Pull any newly played dates' starting lineups and home-plate umpires.
+      - name: Update lineups and umpires
+        run: python -m ingestion.fetch_lineups_umpires --update
+
+      # 2. Recompute rolling pitcher/opponent/lineup/umpire features and
+      #    rebuild the joined training dataset from the refreshed stores.
       - name: Rebuild features and training dataset
         run: |
           python -m features.pitcher_features
           python -m features.opponent_features
+          python -m features.lineup_features
+          python -m features.umpire_features
           python -m features.build_dataset
 
       # 3. Retrain the LightGBM Poisson model on 2021-2024, evaluate on the
@@ -58,8 +64,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/raw/statcast_pitching.parquet \
                   data/raw/pitcher_game_logs.parquet \
+                  data/raw/lineups.parquet \
+                  data/raw/officials.parquet \
                   data/processed/pitcher_features.parquet \
                   data/processed/opponent_features.parquet \
+                  data/processed/lineup_features.parquet \
+                  data/processed/umpire_features.parquet \
+                  data/processed/umpire_lookup.parquet \
                   data/processed/training_dataset.parquet \
                   models/saved/ks_model.pkl
           git diff --cached --quiet && echo "Nothing to commit" && exit 0

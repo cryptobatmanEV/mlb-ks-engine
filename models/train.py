@@ -54,6 +54,7 @@ FEATURES = (
     [f'{stat}_{w}' for w in WINDOWS for stat in ROLLING_STATS]
     + ['rest_days', 'prev_pitches', 'n_prior_starts', 'is_home', 'is_night']
     + ['opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games']
+    + ['lineup_k_pct', 'ump_k_factor']
     + ['park_k_factor']
     + ['temp_f', 'wind_speed', 'wind_favor', 'is_dome']
 )
@@ -89,6 +90,24 @@ def print_calibration_table(label, preds, actual):
               f"gap={p_over - actual_rate:+.3f}")
 
 
+def evaluate_bundle(bundle, holdout_df, label):
+    """Evaluate a saved model bundle (model + bias_correction + features) on
+    the holdout set, using the bundle's OWN feature list."""
+    features = bundle['features']
+    model = bundle['model']
+    bias_correction = bundle['bias_correction']
+
+    X_holdout = holdout_df[features]
+    y_holdout = holdout_df['target_k']
+
+    pred_raw = np.clip(model.predict(X_holdout), 1e-6, None)
+    pred = np.clip(pred_raw + bias_correction, 1e-6, None)
+
+    mae, rmse, corr = print_metrics(label, pred, y_holdout)
+    print_calibration_table(f"{label} -- Poisson calibration:", pred, y_holdout.values)
+    return {'mae': mae, 'rmse': rmse, 'corr': corr}
+
+
 def train():
     print("Loading training dataset...")
     df = pd.read_parquet(DATA)
@@ -105,6 +124,21 @@ def train():
     print(f"  - calibration slice (2025 H1): {len(cal_df):,}")
     print(f"  - holdout slice (2025 H2 + 2026): {len(holdout_df):,}")
     print(f"\nFeature count: {len(FEATURES)}")
+
+    # ── BEFORE: evaluate the currently-saved model (if any) on this holdout ──
+    old_bundle = None
+    old_results = None
+    if os.path.exists(MODEL_PATH):
+        old_bundle = joblib.load(MODEL_PATH)
+        print("\n" + "=" * 60)
+        print(f"BEFORE: current saved model ({len(old_bundle['features'])} features)")
+        print("=" * 60)
+        old_results = evaluate_bundle(
+            old_bundle, holdout_df,
+            "Genuine holdout (2025 H2 + 2026), current model, bias-corrected:"
+        )
+    else:
+        print("\nNo existing saved model found -- this will be the first model saved.")
 
     X_train, y_train = train_df[FEATURES], train_df['target_k']
     X_test, y_test = test_df[FEATURES], test_df['target_k']
@@ -135,6 +169,10 @@ def train():
           f"{bias_correction:+.4f}")
 
     # ── Evaluation ────────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print(f"AFTER: newly trained model ({len(FEATURES)} features)")
+    print("=" * 60)
+
     pred_test_raw = np.clip(model.predict(X_test), 1e-6, None)
     pred_test = np.clip(pred_test_raw + bias_correction, 1e-6, None)
 
@@ -144,7 +182,9 @@ def train():
     pred_holdout_raw = np.clip(model.predict(X_holdout), 1e-6, None)
     pred_holdout = np.clip(pred_holdout_raw + bias_correction, 1e-6, None)
     print_metrics("Genuine holdout (2025 H2 + 2026), raw predictions:", pred_holdout_raw, y_holdout)
-    print_metrics("Genuine holdout (2025 H2 + 2026), bias-corrected predictions:", pred_holdout, y_holdout)
+    new_mae, new_rmse, new_corr = print_metrics(
+        "Genuine holdout (2025 H2 + 2026), bias-corrected predictions:", pred_holdout, y_holdout)
+    new_results = {'mae': new_mae, 'rmse': new_rmse, 'corr': new_corr}
 
     # ── Feature importance ───────────────────────────────────────────────
     print("\nTop 15 feature importances (gain):")
@@ -184,14 +224,38 @@ def train():
               f"line {line:.1f} -- Poisson P(over) = {poisson_prob:.3f}, "
               f"actual over rate = {actual_rate:.3f}")
 
-    # ── Save model ────────────────────────────────────────────────────────
-    os.makedirs('models/saved', exist_ok=True)
-    joblib.dump({
-        'model': model,
-        'bias_correction': bias_correction,
-        'features': FEATURES,
-    }, MODEL_PATH)
-    print(f"\nSaved model + bias correction + feature list to {MODEL_PATH}")
+    # ── BEFORE vs AFTER comparison + conditional save ───────────────────────
+    print("\n" + "=" * 60)
+    print("BEFORE vs AFTER -- genuine holdout (2025 H2 + 2026), bias-corrected")
+    print("=" * 60)
+    if old_results is not None:
+        print(f"  {'Metric':<8s} {'BEFORE':>10s} {'AFTER':>10s} {'Change':>10s}")
+        print(f"  {'MAE':<8s} {old_results['mae']:>10.4f} {new_results['mae']:>10.4f} "
+              f"{new_results['mae'] - old_results['mae']:>+10.4f}")
+        print(f"  {'RMSE':<8s} {old_results['rmse']:>10.4f} {new_results['rmse']:>10.4f} "
+              f"{new_results['rmse'] - old_results['rmse']:>+10.4f}")
+        print(f"  {'Corr':<8s} {old_results['corr']:>10.4f} {new_results['corr']:>10.4f} "
+              f"{new_results['corr'] - old_results['corr']:>+10.4f}")
+
+        improved = (new_results['mae'] < old_results['mae']) and (new_results['rmse'] < old_results['rmse'])
+        if improved:
+            print("\n  Result: AFTER improves on BEFORE (lower MAE and RMSE) -- saving new model.")
+        else:
+            print("\n  Result: AFTER does NOT improve on BEFORE -- keeping existing model.")
+    else:
+        improved = True
+        print("  No prior model to compare against -- saving new model.")
+
+    if improved:
+        os.makedirs('models/saved', exist_ok=True)
+        joblib.dump({
+            'model': model,
+            'bias_correction': bias_correction,
+            'features': FEATURES,
+        }, MODEL_PATH)
+        print(f"\nSaved model + bias correction + feature list to {MODEL_PATH}")
+    else:
+        print(f"\n{MODEL_PATH} left unchanged.")
 
     return model
 
