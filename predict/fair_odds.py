@@ -142,8 +142,15 @@ def model_prob_over(pred_k, line):
 # because it has pitcher-specific Statcast data the market may not fully
 # price in, but the market gets significant weight because it aggregates
 # information (injuries, weather, lineup news, etc.) the model doesn't see.
-# Tune this based on validation data.
-MODEL_WEIGHT = 0.60
+#
+# Tuned via models/optimize_blend.py on the 2025 H2 + 2026 holdout (real
+# historical book odds aren't available, so that script blends against a
+# proxy "market" model trained on a narrower, lagging feature set -- see its
+# docstring for the caveat). 0.70 minimized the edge-calibration gap (0.0045,
+# vs 0.0289 with no blending) while also sitting at/near the MAE/RMSE floor.
+# Revisit once real adj_k / book-line history accumulates via the daily
+# pipeline.
+MODEL_WEIGHT = 0.70
 
 
 def implied_lambda_from_line(line, p_over):
