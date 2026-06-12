@@ -48,7 +48,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'ADJ Ks',
-    def: "PROJ Ks blended with the market-implied strikeout total backed out of the sportsbook line and price (70% model / 30% market by default). This blended number is what all edges are calculated from. With no book line available, ADJ Ks equals PROJ Ks.",
+    def: "PROJ Ks blended with the market-implied strikeout total backed out of the sportsbook line and price (60% model / 40% market by default). This blended number is what all edges are calculated from. With no book line available, ADJ Ks equals PROJ Ks.",
   },
   {
     term: 'BOOK O/U',
@@ -161,7 +161,7 @@ export default function GuidePage() {
           <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
             When a sportsbook line is available, the book&apos;s price is de-vigged and inverted to back
             out the market&apos;s own implied strikeout total. PROJ Ks is blended with that market-implied
-            total (70% model / 30% market by default) to produce ADJ Ks -- with no book line, ADJ Ks
+            total (60% model / 40% market by default) to produce ADJ Ks -- with no book line, ADJ Ks
             simply equals PROJ Ks. ADJ Ks is then treated as the lambda (mean) of a Poisson distribution.
             For any strikeout line -- a sportsbook line, a PrizePicks line, or a custom MY LINE -- the
             model computes P(actual Ks &gt; line) directly from that distribution. EDGE is this
