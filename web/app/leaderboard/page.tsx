@@ -47,9 +47,15 @@ const CARD: React.CSSProperties = {
 
 const TH: React.CSSProperties = {
   ...LABEL,
-  padding:    '8px 14px',
+  padding:    'var(--lb-pad, 8px 14px)',
+  fontSize:   'var(--lb-font, 10px)',
   fontWeight:  500,
   background: 'rgba(255,255,255,0.02)',
+};
+
+const TD: React.CSSProperties = {
+  padding:   'var(--lb-pad, 9px 14px)',
+  fontSize:  'var(--lb-font, 11px)',
 };
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -118,9 +124,8 @@ export default async function LeaderboardPage() {
         {/* Content */}
         {dbError ? (
           <div style={{ ...CARD, padding: '40px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '8px' }}>DATABASE ERROR</div>
-            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.15)', wordBreak: 'break-all' }}>
-              {dbError}
+            <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>
+              Something went wrong loading the leaderboard. Please try again later.
             </div>
           </div>
         ) : rows.length === 0 ? (
@@ -132,14 +137,20 @@ export default async function LeaderboardPage() {
           </div>
         ) : (
           <div style={{ ...CARD, overflowX: 'auto' }}>
-            <table style={{
+            <table className="lb-table" style={{
               width: '100%', borderCollapse: 'collapse',
               fontFamily: 'var(--font-mono)', fontSize: '11px',
             }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
                   {(['#', 'USER', 'BETS', 'W', 'L', 'WIN RATE', 'P/L', 'ROI'] as const).map((h, i) => (
-                    <th key={h} style={{ ...TH, textAlign: i >= 2 ? 'right' : 'left' }}>{h}</th>
+                    <th
+                      key={h}
+                      className={i >= 2 && i <= 4 ? 'lb-col-hide-mobile' : undefined}
+                      style={{ ...TH, textAlign: i >= 2 ? 'right' : 'left' }}
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -151,26 +162,26 @@ export default async function LeaderboardPage() {
                   const roiColor = row.roi > 0 ? 'var(--ev-green)' : row.roi < 0 ? 'var(--ev-red)' : 'var(--ev-muted)';
                   return (
                     <tr key={row.discord_user_id} style={{ borderBottom: '1px solid var(--ev-border)' }}>
-                      <td style={{ padding: '9px 14px', color: 'var(--ev-dim)' }}>{idx + 1}</td>
-                      <td style={{ padding: '9px 14px', color: 'var(--ev-text)', fontWeight: 600 }}>
+                      <td style={{ ...TD, color: 'var(--ev-dim)' }}>{idx + 1}</td>
+                      <td style={{ ...TD, color: 'var(--ev-text)', fontWeight: 600 }}>
                         {row.discord_username ?? 'Unknown'}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-muted)' }}>
+                      <td className="lb-col-hide-mobile" style={{ ...TD, textAlign: 'right', color: 'var(--ev-muted)' }}>
                         {row.total_bets}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-green)' }}>
+                      <td className="lb-col-hide-mobile" style={{ ...TD, textAlign: 'right', color: 'var(--ev-green)' }}>
                         {row.wins}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-red)' }}>
+                      <td className="lb-col-hide-mobile" style={{ ...TD, textAlign: 'right', color: 'var(--ev-red)' }}>
                         {row.losses}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--ev-text)' }}>
+                      <td style={{ ...TD, textAlign: 'right', color: 'var(--ev-text)' }}>
                         {winRate}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: plColor }}>
+                      <td style={{ ...TD, textAlign: 'right', color: plColor }}>
                         {fmtPL(row.total_profit)}
                       </td>
-                      <td style={{ padding: '9px 14px', textAlign: 'right', color: roiColor, fontWeight: 600 }}>
+                      <td style={{ ...TD, textAlign: 'right', color: roiColor, fontWeight: 600 }}>
                         {fmtROI(row.roi)}
                       </td>
                     </tr>
@@ -183,7 +194,7 @@ export default async function LeaderboardPage() {
 
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
-          P/L SETTLES AFTER LOG RUN &nbsp;&middot;&nbsp;
+          RESULTS UPDATE AFTER GAMES FINISH &nbsp;&middot;&nbsp;
           ROI = TOTAL P/L &divide; TOTAL STAKED ON SETTLED BETS
         </div>
 

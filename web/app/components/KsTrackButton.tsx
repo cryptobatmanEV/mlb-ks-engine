@@ -214,7 +214,7 @@ export default function KsTrackButton({
         verticalAlign: 'bottom',
       }}
     >
-      ERROR: {errorMsg || 'unknown'}
+      Couldn&apos;t save — try again
     </span>
   );
 }

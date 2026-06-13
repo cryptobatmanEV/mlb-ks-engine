@@ -29,7 +29,7 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   async function handleDelete(id: number) {
-    if (!window.confirm('DELETE THIS BET?')) return;
+    if (!window.confirm('Remove this play from your tracker?')) return;
 
     setDeletingId(id);
     try {
@@ -37,7 +37,7 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
       if (!res.ok) {
         const text = await res.text();
         console.error('[BetsTable] delete failed:', res.status, text);
-        alert(`Failed to delete bet (${res.status}).`);
+        alert('Something went wrong — please try again.');
         setDeletingId(null);
         return;
       }
@@ -45,7 +45,7 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[BetsTable] delete error:', msg);
-      alert('Failed to delete bet.');
+      alert('Something went wrong — please try again.');
       setDeletingId(null);
     }
   }
@@ -53,6 +53,7 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
   if (bets.length === 0) return null;
 
   return (
+    <div className="scroll-table-wrap">
     <div style={{ ...CARD, overflowX: 'auto' }}>
       <table style={{
         width: '100%', borderCollapse: 'collapse',
@@ -130,6 +131,8 @@ export default function BetsTable({ bets: initialBets }: { bets: TrackedBet[] })
           })}
         </tbody>
       </table>
+    </div>
+    <div className="scroll-hint">&larr; SCROLL FOR MORE &rarr;</div>
     </div>
   );
 }

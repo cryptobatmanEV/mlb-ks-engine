@@ -122,32 +122,26 @@ export default async function Home({
         {/* Predictions table */}
         {dbError ? (
           <div style={{ ...CARD, padding: '40px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '8px' }}>NO DATA LOADED</div>
-            <div style={{ fontSize: '11px', color: 'var(--ev-dim)', marginBottom: '8px' }}>
-              Check DATABASE_URL in Vercel environment variables.
-            </div>
-            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.15)', wordBreak: 'break-all' }}>
-              {dbError}
-            </div>
+            <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>No plays available for this date</div>
           </div>
         ) : rows.length === 0 ? (
           <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
             {isBeforeLineups ? (
               <>
                 <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '8px', fontSize: '11px', letterSpacing: '3px' }}>
-                  PROBABLE PITCHERS NOT POSTED YET
+                  PLAYS COMING SOON
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--ev-dim)' }}>
-                  MLB probable pitchers typically post in the morning. Run the pipeline after they drop.
+                  Check back closer to game time — today&apos;s lineups are still being finalized.
                 </div>
               </>
             ) : (
               <>
                 <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '8px' }}>
-                  NO PREDICTIONS YET
+                  TODAY&apos;S CARD IS LOADING
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--ev-dim)' }}>
-                  <code style={{ fontFamily: 'var(--font-mono)' }}>python -m scripts.daily_pipeline</code>
+                  Plays appear as lineups are confirmed — check back soon.
                 </div>
               </>
             )}
@@ -166,10 +160,9 @@ export default async function Home({
 
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
-          PROJ Ks = MODEL LAMBDA &nbsp;&middot;&nbsp;
-          ADJ Ks = PROJ Ks BLENDED WITH MARKET-IMPLIED Ks &nbsp;&middot;&nbsp;
-          EDGE = ADJ-Ks-BASED P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
-          P/L SETTLES AFTER LOG RUN
+          SEE THE GUIDE TAB FOR COLUMN DEFINITIONS &nbsp;&middot;&nbsp;
+          RESULTS UPDATE AFTER GAMES FINISH &nbsp;&middot;&nbsp;
+          FOR ENTERTAINMENT PURPOSES ONLY
         </div>
 
       </div>

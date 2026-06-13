@@ -274,9 +274,8 @@ export default async function TrackerPage() {
         {/* Content */}
         {dbError ? (
           <div style={{ ...CARD, padding: '40px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '8px' }}>DATABASE ERROR</div>
-            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.15)', wordBreak: 'break-all' }}>
-              {dbError}
+            <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>
+              Something went wrong loading your tracker. Please try again later.
             </div>
           </div>
         ) : totalBets === 0 ? (
@@ -361,9 +360,8 @@ export default async function TrackerPage() {
 
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
-          P/L SETTLES AFTER LOG RUN &nbsp;&middot;&nbsp;
-          EDGE = ADJ-Ks-BASED P(OVER) - IMPLIED PROB &nbsp;&middot;&nbsp;
-          RESULTS UPDATED DAILY
+          RESULTS UPDATE AFTER GAMES FINISH &nbsp;&middot;&nbsp;
+          FOR ENTERTAINMENT PURPOSES ONLY
         </div>
 
       </div>

@@ -52,3 +52,70 @@ input::placeholder { color: var(--ev-dim); opacity: 1; }
   justify-content: center;
   z-index: 50;
 }
+
+/* ── Responsive: K table ─────────────────────────────────────────────── */
+
+.ks-table-wrap {
+  --ks-pad-y: 9px;
+  --ks-pad-x: 12px;
+  --ks-font:  12px;
+}
+
+.ks-table-mobile { display: none; }
+
+@media (max-width: 1400px) {
+  .ks-table-wrap { --ks-pad-y: 7px; --ks-pad-x: 7px; --ks-font: 11px; }
+  .ks-col-lvl1 { display: none; }
+}
+
+@media (max-width: 1100px) {
+  .ks-table-wrap { --ks-pad-x: 6px; }
+  .ks-col-lvl2 { display: none; }
+}
+
+@media (max-width: 768px) {
+  .ks-table-desktop { display: none; }
+  .ks-table-mobile  { display: flex; flex-direction: column; gap: 8px; }
+}
+
+.ks-mobile-card {
+  background:    var(--ev-card);
+  border:        1px solid var(--ev-border);
+  border-radius: 2px;
+  padding:       12px 14px;
+}
+
+.ks-mobile-game-header {
+  font-family:    var(--font-mono);
+  font-size:      10px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color:          var(--ev-text);
+  padding:        7px 4px;
+  margin-top:     8px;
+}
+
+/* ── Responsive: scrollable tables (tracker) ─────────────────────────── */
+
+.scroll-table-wrap { position: relative; }
+
+.scroll-hint {
+  display:        none;
+  text-align:     center;
+  font-family:    var(--font-mono);
+  font-size:      9px;
+  letter-spacing: 2px;
+  color:          var(--ev-dim);
+  padding:        6px 0 0;
+}
+
+@media (max-width: 768px) {
+  .scroll-hint { display: block; }
+}
+
+/* ── Responsive: leaderboard ──────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .lb-table { --lb-pad: 7px 8px; --lb-font: 10px; }
+  .lb-col-hide-mobile { display: none; }
+}

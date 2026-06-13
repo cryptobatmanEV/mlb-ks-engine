@@ -432,6 +432,18 @@ function getSortVal(row: Row, key: SortKey): string | number | null {
   return row[key as keyof Row] as string | number | null;
 }
 
+// TRACK button line/odds/edge/side: book line > PP line > model projection,
+// default -110. Shared by the desktop table, mobile cards, and AI Picks.
+function getTrackInfo(row: Row): { trackLine: number; trackOdds: number; trackEdge: number | null; trackSide: string } {
+  if (row.has_line && row.book_line != null) {
+    return { trackLine: row.book_line, trackOdds: row.best_odds ?? -110, trackEdge: row.edge_book, trackSide: row.book_side ?? 'over' };
+  }
+  if (row.pp_line != null) {
+    return { trackLine: row.pp_line, trackOdds: -110, trackEdge: row.edge_pp, trackSide: row.pp_side ?? 'over' };
+  }
+  return { trackLine: Math.floor(row.pred_k) + 0.5, trackOdds: -110, trackEdge: null, trackSide: 'over' };
+}
+
 // ── Style tokens ───────────────────────────────────────────────────────────
 
 const LABEL: React.CSSProperties = {
@@ -444,7 +456,7 @@ const LABEL: React.CSSProperties = {
 
 const TH_BASE: React.CSSProperties = {
   ...LABEL,
-  padding:    '10px 12px',
+  padding:    'var(--ks-pad-y) var(--ks-pad-x)',
   fontWeight:  500,
   background: 'rgba(255,255,255,0.02)',
   userSelect: 'none',
@@ -455,7 +467,7 @@ const STICKY_BG = '#0a0d0f';
 
 // ── Column definitions ─────────────────────────────────────────────────────
 
-type ColDef = { key: SortKey | null; label: string; align: 'left' | 'right'; sticky?: boolean };
+type ColDef = { key: SortKey | null; label: string; align: 'left' | 'right'; sticky?: boolean; hide?: 'lvl1' | 'lvl2' };
 
 const COLS: ColDef[] = [
   { key: 'pitcher_name',    label: 'PITCHER',   align: 'left',  sticky: true },
@@ -466,22 +478,22 @@ const COLS: ColDef[] = [
   { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
   { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
   { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
-  { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
-  { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
-  { key: null,              label: 'MY LINE',   align: 'right' },
-  { key: null,              label: 'MY EDGE',   align: 'right' },
-  { key: 'p_k_per9_10',     label: 'K/9 L10',   align: 'right' },
-  { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right' },
-  { key: 'opp_k_pct_15',    label: 'OPP K%',    align: 'right' },
-  { key: 'park_k_factor',   label: 'PARK',      align: 'right' },
-  { key: 'game_time',       label: 'GAME TIME', align: 'right' },
+  { key: 'pp_line',         label: 'PP LINE',   align: 'right', hide: 'lvl2' },
+  { key: 'edge_pp',         label: 'PP EDGE',   align: 'right', hide: 'lvl2' },
+  { key: null,              label: 'MY LINE',   align: 'right', hide: 'lvl1' },
+  { key: null,              label: 'MY EDGE',   align: 'right', hide: 'lvl1' },
+  { key: 'p_k_per9_10',     label: 'K/9 L10',   align: 'right', hide: 'lvl1' },
+  { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right', hide: 'lvl1' },
+  { key: 'opp_k_pct_15',    label: 'OPP K%',    align: 'right', hide: 'lvl1' },
+  { key: 'park_k_factor',   label: 'PARK',      align: 'right', hide: 'lvl1' },
+  { key: 'game_time',       label: 'GAME TIME', align: 'right', hide: 'lvl1' },
   { key: null,              label: '',          align: 'right' },
 ];
 
-// Result columns (ACTUAL Ks, RESULT) are only spliced into COLS for past
-// dates once actual_k has been logged -- see `cols` in the component.
-const ACTUAL_K_COL: ColDef = { key: 'actual_k', label: 'ACTUAL Ks', align: 'right' };
-const RESULT_COL:   ColDef = { key: null,       label: 'RESULT',    align: 'right' };
+// Result column (ACTUAL Ks) is only spliced into COLS for past dates once
+// actual_k has been logged -- see `cols` in the component. The W/L result
+// itself is shown inline next to the pitcher's name instead of its own column.
+const ACTUAL_K_COL: ColDef = { key: 'actual_k', label: 'ACTUAL Ks', align: 'right', hide: 'lvl1' };
 
 // Compares an actual K total against a recommended line/side. Shared by the
 // main table (book line/side) and AI Picks (whichever line/side was tracked).
@@ -839,15 +851,14 @@ export default function KsTable({ rows }: { rows: Row[] }) {
     return candidates.slice(0, AI_PICK_LIMIT);
   }, [rows]);
 
-  // Result columns (ACTUAL Ks, RESULT) only appear once actual_k has been
-  // logged for this date -- i.e. never for today's still-in-progress card.
+  // ACTUAL Ks column only appears once actual_k has been logged for this
+  // date -- i.e. never for today's still-in-progress card.
   const hasResults = useMemo(() => rows.some(r => r.actual_k != null), [rows]);
 
   const cols = useMemo(() => {
     if (!hasResults) return COLS;
     const out = [...COLS];
     out.splice(out.findIndex(c => c.key === 'adj_k') + 1, 0, ACTUAL_K_COL);
-    out.splice(out.findIndex(c => c.key === 'book_line') + 1, 0, RESULT_COL);
     return out;
   }, [hasResults]);
 
@@ -976,11 +987,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
         </div>
       ) : (
       /* Table */
-      <div style={{
+      <div className="ks-table-wrap">
+      <div className="ks-table-desktop" style={{
         background: 'var(--ev-card)', border: '1px solid var(--ev-border)',
         borderRadius: '2px', overflowX: 'auto',
       }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 'var(--ks-font)' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
               {cols.map((col, ci) => {
@@ -990,6 +1002,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <th
                     key={ci}
                     onClick={() => handleSort(col.key)}
+                    className={col.hide === 'lvl1' ? 'ks-col-lvl1' : col.hide === 'lvl2' ? 'ks-col-lvl2' : undefined}
                     style={{
                       ...TH_BASE,
                       textAlign: col.align,
@@ -1104,7 +1117,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
                     {/* PITCHER — sticky */}
                     <td style={{
-                      padding:     '9px 12px',
+                      padding:     'var(--ks-pad-y) var(--ks-pad-x)',
                       color:       'var(--ev-text)',
                       fontWeight:  500,
                       position:    'sticky',
@@ -1123,37 +1136,46 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         transform:   isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                       }}>▶</span>
                       {row.pitcher_name}
+                      {result && (
+                        <span style={{
+                          marginLeft: '8px', fontSize: '10px', fontWeight: 700, color: result.color,
+                          border: `1px solid ${result.color}`, borderRadius: '2px',
+                          padding: '1px 5px', letterSpacing: '1px',
+                        }}>
+                          {result.text}
+                        </span>
+                      )}
                     </td>
 
                     {/* TEAM */}
-                    <td style={{ padding: '9px 12px', color: 'var(--ev-muted)' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'var(--ev-muted)' }}>
                       {row.team}
                     </td>
 
                     {/* OPP */}
-                    <td style={{ padding: '9px 12px', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {row.is_home ? 'vs ' : '@ '}{row.opp_team}
                     </td>
 
                     {/* PROJ Ks */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
                       {row.pred_k.toFixed(2)}
                     </td>
 
                     {/* ADJ Ks */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
                       {row.adj_k != null ? row.adj_k.toFixed(2) : row.pred_k.toFixed(2)}
                     </td>
 
                     {/* ACTUAL Ks */}
                     {hasResults && (
-                      <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                      <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
                         {row.actual_k != null ? row.actual_k : <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>}
                       </td>
                     )}
 
                     {/* BOOK O/U */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
                       {row.has_line ? (
                         <>
                           <span style={{ color: 'var(--ev-text)' }}>
@@ -1173,43 +1195,31 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       )}
                     </td>
 
-                    {/* RESULT */}
-                    {hasResults && (
-                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>
-                        {result ? (
-                          <span style={{ fontWeight: 700, color: result.color }}>
-                            {result.text}
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>
-                        )}
-                      </td>
-                    )}
-
                     {/* BOOK EDGE */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                       {bookEdgeDisp.text}
                     </td>
 
                     {/* MODEL PROB */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
                       {modelProbDisp.text}
                     </td>
 
                     {/* PP LINE */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-text)' }}>
+                    <td className="ks-col-lvl2" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
                       {row.pp_line != null
                         ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}`
                         : '—'}
                     </td>
 
                     {/* PP EDGE */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
+                    <td className="ks-col-lvl2" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
                       {ppEdgeDisp.text}
                     </td>
 
                     {/* MY LINE */}
                     <td
+                      className="ks-col-lvl1"
                       style={{ padding: '6px 10px', textAlign: 'right' }}
                       onClick={e => e.stopPropagation()}
                     >
@@ -1234,34 +1244,34 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* MY EDGE */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
                       {customNum != null && mySide && myEdgeDisp.text !== '—'
                         ? `${mySide === 'under' ? 'U' : 'O'} ${myEdgeDisp.text}`
                         : myEdgeDisp.text}
                     </td>
 
                     {/* K/9 L10 */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {fmtNum(row.p_k_per9_10, 2)}
                     </td>
 
                     {/* SWSTR% */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {fmtPct1(row.p_swstr_pct_10)}
                     </td>
 
                     {/* OPP K% */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {fmtPct1(row.opp_k_pct_15)}
                     </td>
 
                     {/* PARK */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {fmtInt(row.park_k_factor)}
                     </td>
 
                     {/* GAME TIME */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
                       {fmtGameTime(row.game_time)}
                     </td>
 
@@ -1301,6 +1311,104 @@ export default function KsTable({ rows }: { rows: Row[] }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile card list (<768px) */}
+      <div className="ks-table-mobile">
+        {tableItems.map(item => {
+          if (item.type === 'header') {
+            return (
+              <div key={`m-hdr-${item.gamePk}`} className="ks-mobile-game-header">
+                {item.label}
+                <span style={{ color: 'var(--ev-dim)', marginLeft: '10px', letterSpacing: '1px', fontSize: '9px' }}>
+                  {item.count} PITCHER{item.count !== 1 ? 'S' : ''}
+                </span>
+              </div>
+            );
+          }
+
+          const row = item.row;
+          const id = rowId(row);
+          const isExpanded = expandedRow === id;
+          const result = hasResults ? resultForRow(row) : null;
+          const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
+          const modelProbDisp = modelProbDisplay(row.model_prob_book_line, row.has_line);
+          const { trackLine, trackOdds, trackEdge, trackSide } = getTrackInfo(row);
+          const playLine = row.has_line ? row.book_line : row.pp_line;
+          const playSide = row.has_line ? row.book_side : row.pp_side;
+
+          return (
+            <div key={`m-${id}`} className="ks-mobile-card" onClick={() => toggleExpand(id)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '14px', color: 'var(--ev-text)' }}>
+                    {row.pitcher_name}
+                  </span>
+                  {result && (
+                    <span style={{
+                      fontSize: '10px', fontWeight: 700, color: result.color,
+                      border: `1px solid ${result.color}`, borderRadius: '2px',
+                      padding: '1px 5px', letterSpacing: '1px',
+                    }}>
+                      {result.text}
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--ev-dim)' }}>
+                  {fmtGameTime(row.game_time)}
+                </span>
+              </div>
+
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)', marginBottom: '10px' }}>
+                {row.team} {row.is_home ? 'vs' : '@'} {row.opp_team}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={LABEL}>THE PLAY</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 700, color: 'var(--ev-text)', marginTop: '4px' }}>
+                    {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={LABEL}>BOOK EDGE</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
+                    {bookEdgeDisp.text}
+                  </div>
+                </div>
+                <div>
+                  <div style={LABEL}>MODEL PROB</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+                    {modelProbDisp.text}
+                  </div>
+                </div>
+                <div onClick={e => e.stopPropagation()}>
+                  <KsTrackButton
+                    gameDate={toISODate(row.game_date)}
+                    gamePk={row.game_pk}
+                    pitcher={row.pitcher}
+                    pitcherName={row.pitcher_name}
+                    team={row.team}
+                    oppTeam={row.opp_team}
+                    predK={row.pred_k}
+                    line={trackLine}
+                    side={trackSide}
+                    odds={trackOdds}
+                    edge={trackEdge}
+                    isTracked={trackedKeys.has(trackedKey(row.game_date, row.pitcher))}
+                  />
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div style={{ overflowX: 'auto', margin: '10px -14px -12px' }}>
+                  <DetailCard row={row} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
       </div>
       )}
     </div>
