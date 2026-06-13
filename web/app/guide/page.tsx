@@ -32,23 +32,16 @@ const DEF: React.CSSProperties = {
   color:      'var(--ev-text)',
 };
 
-const SUBHEAD: React.CSSProperties = {
-  ...LABEL,
-  color:        'var(--ev-muted)',
-  marginTop:    '16px',
-  marginBottom: '8px',
-};
-
 // ── Glossary content ────────────────────────────────────────────────────────
 
 const GLOSSARY: { term: string; def: string }[] = [
   {
     term: 'PROJ Ks',
-    def: "The model's raw projected strikeout total for this start (Poisson lambda), based purely on pitcher-specific data. This is the expected value, not a hard line.",
+    def: "The model's projected strikeout total for this start. This is the expected value, not a hard line.",
   },
   {
     term: 'ADJ Ks',
-    def: "PROJ Ks blended with the market-implied strikeout total backed out of the sportsbook line and price (60% model / 40% market by default). This blended number is what all edges are calculated from. With no book line available, ADJ Ks equals PROJ Ks.",
+    def: "PROJ Ks adjusted using the sportsbook market when a line is available. This is the number all edges are calculated from. With no book line available, ADJ Ks equals PROJ Ks.",
   },
   {
     term: 'BOOK O/U',
@@ -56,7 +49,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'BOOK EDGE',
-    def: "P(actual Ks > book line) using ADJ Ks, minus the book's implied probability from its price. Green = model sees more value than the book. Red = book is priced above the model's estimate. Because ADJ Ks already partially agrees with the market, this edge is naturally smaller and more realistic than a raw-model edge would be.",
+    def: "How much value the model sees on this side compared to the sportsbook price. Green = the model favors this side more than the book's price suggests. Red = the book is priced above the model's estimate.",
   },
   {
     term: 'PP LINE',
@@ -64,15 +57,15 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'PP EDGE',
-    def: "P(actual Ks > PP line) using ADJ Ks, minus 50% (PrizePicks pick'em pricing). Green = model favors the over.",
+    def: "How much value the model sees on PrizePicks' pick'em-style pricing. Green = the model favors the over.",
   },
   {
     term: 'MY LINE',
-    def: 'Enter any strikeout total you found at a book or app. The model recalculates P(over) for that exact number using a Poisson distribution around ADJ Ks.',
+    def: 'Enter any strikeout total you found at a book or app to see the value the model sees on that exact number.',
   },
   {
     term: 'MY EDGE',
-    def: "P(actual Ks > MY LINE) using ADJ Ks, minus 50%, based on the custom total you entered.",
+    def: "The value the model sees for the custom total you entered in MY LINE.",
   },
   {
     term: 'K/9 L10',
@@ -115,7 +108,7 @@ const DETAIL_GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'REST DAYS, PREV PITCHES, PRIOR STARTS',
-    def: "Days of rest since the pitcher's last appearance, pitch count in that last appearance, and how many starts they have made so far this season (used by the model to gauge workload and sample size).",
+    def: "Days of rest since the pitcher's last appearance, pitch count in that last appearance, and how many starts they have made so far this season.",
   },
   {
     term: 'PARK K FACTOR, TEMP, WIND, WIND FAVOR',
@@ -150,24 +143,9 @@ export default function GuidePage() {
         <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
           <div style={{ ...LABEL, marginBottom: '10px' }}>HOW IT WORKS</div>
           <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
-            A LightGBM Poisson regression model projects each starting pitcher&apos;s strikeout total
-            (PROJ Ks) for today&apos;s game. The model is trained on rolling pitcher form (K/9, BB/9,
-            HR/9, WHIP, FIP, K%, swinging-strike%, called-strike%, chase%, first-pitch-strike%, pitch
-            mix and velocity), opponent strikeout tendencies and recent offensive performance, ballpark
-            strikeout factors, weather, and workload context (rest days, prior pitch counts, starts
-            this season).
-          </p>
-          <div style={SUBHEAD}>FROM PROJECTION TO EDGE</div>
-          <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
-            When a sportsbook line is available, the book&apos;s price is de-vigged and inverted to back
-            out the market&apos;s own implied strikeout total. PROJ Ks is blended with that market-implied
-            total (60% model / 40% market by default) to produce ADJ Ks -- with no book line, ADJ Ks
-            simply equals PROJ Ks. ADJ Ks is then treated as the lambda (mean) of a Poisson distribution.
-            For any strikeout line -- a sportsbook line, a PrizePicks line, or a custom MY LINE -- the
-            model computes P(actual Ks &gt; line) directly from that distribution. EDGE is this
-            probability minus the implied probability from the price (or 50% for pick&apos;em-style
-            PrizePicks and custom lines). Positive edge means the model thinks the over is more likely
-            than the price suggests, after accounting for the market&apos;s own information.
+            Our proprietary AI model analyzes dozens of pitching and matchup variables to project
+            strikeout totals and identify value plays. The model is trained on millions of
+            historical pitches and updated daily.
           </p>
         </div>
 
