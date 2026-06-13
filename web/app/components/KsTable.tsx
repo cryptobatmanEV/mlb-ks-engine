@@ -74,7 +74,7 @@ export type Row = {
 
 type SortKey =
   | 'pitcher_name' | 'team' | 'opp_team' | 'pred_k' | 'adj_k' | 'actual_k'
-  | 'book_line' | 'edge_book' | 'pp_line' | 'edge_pp'
+  | 'book_line' | 'edge_book' | 'model_prob_book_line' | 'pp_line' | 'edge_pp'
   | 'p_k_per9_10' | 'p_swstr_pct_10' | 'opp_k_pct_15' | 'park_k_factor' | 'game_time';
 
 type SortDir = 'asc' | 'desc';
@@ -412,6 +412,14 @@ function edgeDisplay(edge: number | null, show: boolean) {
                     return { text, color: 'var(--ev-red)',    weight: 400 };
 }
 
+function modelProbDisplay(prob: number | null, show: boolean) {
+  if (!show || prob == null) return { text: '—', color: 'var(--ev-dim)', weight: 400 };
+  const text = `${(prob * 100).toFixed(1)}%`;
+  if (prob > 0.58)  return { text, color: 'var(--ev-green)', weight: 600 };
+  if (prob >= 0.50) return { text, color: 'var(--ev-muted)', weight: 400 };
+                    return { text, color: 'var(--ev-red)',   weight: 400 };
+}
+
 function parseLineInput(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -457,6 +465,7 @@ const COLS: ColDef[] = [
   { key: 'adj_k',           label: 'ADJ Ks',    align: 'right' },
   { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
   { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
+  { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
   { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
   { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
   { key: null,              label: 'MY LINE',   align: 'right' },
@@ -544,8 +553,9 @@ function buildPickReason(
 
 function AiPickCard({ pick, rank, trackedKeys }: { pick: AiPick; rank: number; trackedKeys: Set<string> }) {
   const { row } = pick;
-  const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
-  const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
+  const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
+  const ppEdgeDisp    = edgeDisplay(row.edge_pp, row.pp_line != null);
+  const modelProbDisp = modelProbDisplay(row.model_prob_book_line, row.has_line);
   const playSide     = pick.trackSide === 'under' ? 'U' : 'O';
   const result       = row.actual_k != null ? resultForLine(row.actual_k, pick.trackLine, pick.trackSide) : null;
   const isTracked    = trackedKeys.has(trackedKey(row.game_date, row.pitcher));
@@ -622,6 +632,13 @@ function AiPickCard({ pick, rank, trackedKeys }: { pick: AiPick; rank: number; t
           <div style={LABEL}>BOOK EDGE</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
             {bookEdgeDisp.text}
+          </div>
+        </div>
+
+        <div>
+          <div style={LABEL}>MODEL PROB</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+            {modelProbDisp.text}
           </div>
         </div>
 
@@ -1031,8 +1048,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               const id = rowId(row);
               const isExpanded = expandedRow === id;
 
-              const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
-              const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
+              const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
+              const ppEdgeDisp    = edgeDisplay(row.edge_pp, row.pp_line != null);
+              const modelProbDisp = modelProbDisplay(row.model_prob_book_line, row.has_line);
               const result       = hasResults ? resultForRow(row) : null;
 
               const rawInput   = customLines[id] ?? '';
@@ -1171,6 +1189,11 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {/* BOOK EDGE */}
                     <td style={{ padding: '9px 12px', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                       {bookEdgeDisp.text}
+                    </td>
+
+                    {/* MODEL PROB */}
+                    <td style={{ padding: '9px 12px', textAlign: 'right', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+                      {modelProbDisp.text}
                     </td>
 
                     {/* PP LINE */}
