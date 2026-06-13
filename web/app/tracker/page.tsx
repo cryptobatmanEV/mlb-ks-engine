@@ -1,5 +1,9 @@
+import { getServerSession } from 'next-auth';
 import { getDb } from '@/lib/db';
+import { authOptions } from '@/lib/auth';
 import Nav from '../components/Nav';
+import SignInWithDiscord from '../components/SignInWithDiscord';
+import SignOutButton from '../components/SignOutButton';
 import { probOver } from '@/lib/poisson';
 import PerformanceCharts, { type PLPoint, type CalibPoint } from './PerformanceCharts';
 import BetsTable from './BetsTable';
@@ -50,6 +54,51 @@ const CARD: React.CSSProperties = {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default async function TrackerPage() {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user) {
+    return (
+      <main style={{ minHeight: '100vh', background: 'var(--ev-bg)', padding: '32px 20px 60px' }}>
+        <div style={{ maxWidth: '1380px', margin: '0 auto' }}>
+
+          {/* Header */}
+          <header style={{ marginBottom: '28px' }}>
+            <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
+              THE +EV CAVE
+            </div>
+            <h1 style={{
+              fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
+              margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
+            }}>
+              TRACKER
+            </h1>
+            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
+              PERFORMANCE HISTORY
+            </div>
+          </header>
+
+          {/* Nav */}
+          <Nav active="tracker" />
+
+          <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
+            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '16px' }}>
+              SIGN IN TO VIEW YOUR TRACKER
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--ev-dim)', marginBottom: '20px' }}>
+              Sign in with Discord to track your picks and see your personal performance history.
+            </div>
+            <SignInWithDiscord callbackUrl="/tracker" />
+          </div>
+
+        </div>
+      </main>
+    );
+  }
+
+  const discordUserId   = session.user.id;
+  const discordUsername = session.user.username ?? session.user.name ?? 'Unknown';
+  const discordImage    = session.user.image ?? null;
+
   let tracker: TrackerStats | null = null;
   let bets: TrackedBet[] = [];
   let plData: PLPoint[] = [];
@@ -61,26 +110,30 @@ export default async function TrackerPage() {
 
     await sql`
       CREATE TABLE IF NOT EXISTS ks_tracked_bets (
-        id           SERIAL PRIMARY KEY,
-        game_date    DATE        NOT NULL,
-        game_pk      BIGINT      NOT NULL,
-        pitcher      BIGINT      NOT NULL,
-        pitcher_name TEXT,
-        team         TEXT,
-        opp_team     TEXT,
-        pred_k       FLOAT,
-        line         FLOAT       NOT NULL,
-        side         TEXT        NOT NULL,
-        odds         INTEGER,
-        edge         FLOAT,
-        stake_units  FLOAT       NOT NULL,
-        actual_k     INTEGER     DEFAULT NULL,
-        result       TEXT        DEFAULT NULL,
-        settled      BOOLEAN     NOT NULL DEFAULT false,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        id              SERIAL PRIMARY KEY,
+        game_date       DATE        NOT NULL,
+        game_pk         BIGINT      NOT NULL,
+        pitcher         BIGINT      NOT NULL,
+        pitcher_name    TEXT,
+        team            TEXT,
+        opp_team        TEXT,
+        pred_k          FLOAT,
+        line            FLOAT       NOT NULL,
+        side            TEXT        NOT NULL,
+        odds            INTEGER,
+        edge            FLOAT,
+        stake_units     FLOAT       NOT NULL,
+        actual_k        INTEGER     DEFAULT NULL,
+        result          TEXT        DEFAULT NULL,
+        settled         BOOLEAN     NOT NULL DEFAULT false,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        discord_user_id TEXT,
+        discord_username TEXT,
         UNIQUE (game_date, pitcher, line, side)
       )
     `;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_user_id TEXT`;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_username TEXT`;
 
     const stats = await sql`
       SELECT
@@ -96,18 +149,19 @@ export default async function TrackerPage() {
           ELSE 0
         END), 0)::float AS total_profit
       FROM ks_tracked_bets
+      WHERE discord_user_id = ${discordUserId}
     `;
     tracker = stats[0] as TrackerStats;
 
     bets = (await sql`
-      SELECT * FROM ks_tracked_bets ORDER BY created_at DESC
+      SELECT * FROM ks_tracked_bets WHERE discord_user_id = ${discordUserId} ORDER BY created_at DESC
     `) as TrackedBet[];
 
     // Cumulative P/L over time — settled bets, chronological order
     const settled = (await sql`
       SELECT game_date, result, odds, stake_units
       FROM ks_tracked_bets
-      WHERE settled
+      WHERE settled AND discord_user_id = ${discordUserId}
       ORDER BY game_date ASC, created_at ASC
     `) as { game_date: string; result: string | null; odds: number | null; stake_units: number }[];
 
@@ -130,7 +184,7 @@ export default async function TrackerPage() {
     const calibRaw = (await sql`
       SELECT pred_k::float AS pred_k, line::float AS line, side, result
       FROM ks_tracked_bets
-      WHERE settled AND result IN ('win', 'loss') AND pred_k IS NOT NULL
+      WHERE settled AND result IN ('win', 'loss') AND pred_k IS NOT NULL AND discord_user_id = ${discordUserId}
     `) as { pred_k: number; line: number; side: string; result: string }[];
 
     const BUCKETS = [
@@ -177,18 +231,40 @@ export default async function TrackerPage() {
       <div style={{ maxWidth: '1380px', margin: '0 auto' }}>
 
         {/* Header */}
-        <header style={{ marginBottom: '28px' }}>
-          <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
-            THE +EV CAVE
+        <header style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
+              THE +EV CAVE
+            </div>
+            <h1 style={{
+              fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
+              margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
+            }}>
+              TRACKER
+            </h1>
+            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
+              PERFORMANCE HISTORY
+            </div>
           </div>
-          <h1 style={{
-            fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
-            margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
-          }}>
-            TRACKER
-          </h1>
-          <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
-            PERFORMANCE HISTORY
+
+          {/* Discord identity */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {discordImage && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={discordImage}
+                alt={discordUsername}
+                width={32}
+                height={32}
+                style={{ borderRadius: '50%', border: '1px solid var(--ev-border)' }}
+              />
+            )}
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ev-text)', fontWeight: 600 }}>
+                {discordUsername}
+              </div>
+              <SignOutButton />
+            </div>
           </div>
         </header>
 

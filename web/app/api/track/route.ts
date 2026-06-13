@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { getDb } from '@/lib/db';
+import { authOptions } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,45 +21,55 @@ export async function POST(req: NextRequest) {
     // Safety net: create table if the pipeline hasn't run yet on this environment.
     await sql`
       CREATE TABLE IF NOT EXISTS ks_tracked_bets (
-        id           SERIAL PRIMARY KEY,
-        game_date    DATE        NOT NULL,
-        game_pk      BIGINT      NOT NULL,
-        pitcher      BIGINT      NOT NULL,
-        pitcher_name TEXT,
-        team         TEXT,
-        opp_team     TEXT,
-        pred_k       FLOAT,
-        line         FLOAT       NOT NULL,
-        side         TEXT        NOT NULL,
-        odds         INTEGER,
-        edge         FLOAT,
-        stake_units  FLOAT       NOT NULL,
-        actual_k     INTEGER     DEFAULT NULL,
-        result       TEXT        DEFAULT NULL,
-        settled      BOOLEAN     NOT NULL DEFAULT false,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        id              SERIAL PRIMARY KEY,
+        game_date       DATE        NOT NULL,
+        game_pk         BIGINT      NOT NULL,
+        pitcher         BIGINT      NOT NULL,
+        pitcher_name    TEXT,
+        team            TEXT,
+        opp_team        TEXT,
+        pred_k          FLOAT,
+        line            FLOAT       NOT NULL,
+        side            TEXT        NOT NULL,
+        odds            INTEGER,
+        edge            FLOAT,
+        stake_units     FLOAT       NOT NULL,
+        actual_k        INTEGER     DEFAULT NULL,
+        result          TEXT        DEFAULT NULL,
+        settled         BOOLEAN     NOT NULL DEFAULT false,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        discord_user_id TEXT,
+        discord_username TEXT,
         UNIQUE (game_date, pitcher, line, side)
       )
     `;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_user_id TEXT`;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_username TEXT`;
+
+    const session = await getServerSession(authOptions);
+    const discordUserId   = session?.user?.id ?? null;
+    const discordUsername = session?.user?.username ?? null;
 
     const result = await sql`
       INSERT INTO ks_tracked_bets
-        (game_date, game_pk, pitcher, pitcher_name, team, opp_team, pred_k, line, side, odds, edge, stake_units, settled)
+        (game_date, game_pk, pitcher, pitcher_name, team, opp_team, pred_k, line, side, odds, edge, stake_units, settled, discord_user_id, discord_username)
       VALUES
         (${game_date}, ${game_pk}, ${pitcher}, ${pitcher_name ?? null}, ${team ?? null}, ${opp_team ?? null},
-         ${pred_k ?? null}, ${line}, ${side}, ${odds ?? null}, ${edge ?? null}, ${stake_units}, false)
+         ${pred_k ?? null}, ${line}, ${side}, ${odds ?? null}, ${edge ?? null}, ${stake_units}, false, ${discordUserId}, ${discordUsername})
       ON CONFLICT (game_date, pitcher, line, side) DO UPDATE SET
-        pitcher_name = EXCLUDED.pitcher_name,
-        team         = EXCLUDED.team,
-        opp_team     = EXCLUDED.opp_team,
-        pred_k       = EXCLUDED.pred_k,
-        odds         = EXCLUDED.odds,
-        edge         = EXCLUDED.edge,
-        stake_units  = EXCLUDED.stake_units,
-        actual_k     = NULL,
-        result       = NULL,
-        settled      = false,
-        created_at   = NOW()
+        pitcher_name     = EXCLUDED.pitcher_name,
+        team             = EXCLUDED.team,
+        opp_team         = EXCLUDED.opp_team,
+        pred_k           = EXCLUDED.pred_k,
+        odds             = EXCLUDED.odds,
+        edge             = EXCLUDED.edge,
+        stake_units      = EXCLUDED.stake_units,
+        actual_k         = NULL,
+        result           = NULL,
+        settled          = false,
+        created_at       = NOW(),
+        discord_user_id  = EXCLUDED.discord_user_id,
+        discord_username = EXCLUDED.discord_username
       RETURNING id
     `;
 

@@ -8,26 +8,30 @@ export async function GET() {
     // Ensure table exists before querying
     await sql`
       CREATE TABLE IF NOT EXISTS ks_tracked_bets (
-        id           SERIAL PRIMARY KEY,
-        game_date    DATE        NOT NULL,
-        game_pk      BIGINT      NOT NULL,
-        pitcher      BIGINT      NOT NULL,
-        pitcher_name TEXT,
-        team         TEXT,
-        opp_team     TEXT,
-        pred_k       FLOAT,
-        line         FLOAT       NOT NULL,
-        side         TEXT        NOT NULL,
-        odds         INTEGER,
-        edge         FLOAT,
-        stake_units  FLOAT       NOT NULL,
-        actual_k     INTEGER     DEFAULT NULL,
-        result       TEXT        DEFAULT NULL,
-        settled      BOOLEAN     NOT NULL DEFAULT false,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        id              SERIAL PRIMARY KEY,
+        game_date       DATE        NOT NULL,
+        game_pk         BIGINT      NOT NULL,
+        pitcher         BIGINT      NOT NULL,
+        pitcher_name    TEXT,
+        team            TEXT,
+        opp_team        TEXT,
+        pred_k          FLOAT,
+        line            FLOAT       NOT NULL,
+        side            TEXT        NOT NULL,
+        odds            INTEGER,
+        edge            FLOAT,
+        stake_units     FLOAT       NOT NULL,
+        actual_k        INTEGER     DEFAULT NULL,
+        result          TEXT        DEFAULT NULL,
+        settled         BOOLEAN     NOT NULL DEFAULT false,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        discord_user_id TEXT,
+        discord_username TEXT,
         UNIQUE (game_date, pitcher, line, side)
       )
     `;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_user_id TEXT`;
+    await sql`ALTER TABLE ks_tracked_bets ADD COLUMN IF NOT EXISTS discord_username TEXT`;
 
     const bets = await sql`
       SELECT * FROM ks_tracked_bets

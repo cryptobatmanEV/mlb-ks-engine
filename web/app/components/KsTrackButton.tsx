@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 
 type Props = {
   gameDate:    string;
@@ -35,6 +36,7 @@ export default function KsTrackButton({
   gameDate, gamePk, pitcher, pitcherName, team, oppTeam, predK, line, side, odds, edge, isTracked,
 }: Props) {
   const router = useRouter();
+  const { status } = useSession();
   const [phase,      setPhase]      = useState<Phase>('idle');
   const [stake,      setStake]      = useState('1');
   const [savedStake, setSavedStake] = useState('1');
@@ -109,6 +111,7 @@ export default function KsTrackButton({
     return (
       <button
         onClick={() => setPhase('open')}
+        title={status !== 'authenticated' ? 'Sign in to track' : undefined}
         style={{
           ...BTN,
           color:      'var(--ev-green)',
