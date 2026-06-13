@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import KsTrackButton from './KsTrackButton';
 import { probOver } from '@/lib/poisson';
 
@@ -396,6 +396,12 @@ function toISODate(d: unknown): string {
   return String(d).slice(0, 10);
 }
 
+// Key used to look up whether a (game_date, pitcher) pair is already in
+// ks_tracked_bets -- see trackedKeys in the component body.
+function trackedKey(gameDate: unknown, pitcher: number): string {
+  return `${toISODate(gameDate)}_${pitcher}`;
+}
+
 function edgeDisplay(edge: number | null, show: boolean) {
   if (!show || edge == null) return { text: '—', color: 'var(--ev-dim)', weight: 400 };
   const sign = edge > 0 ? '+' : '';
@@ -536,12 +542,13 @@ function buildPickReason(
   return top[0].charAt(0).toUpperCase() + top[0].slice(1) + (top.length > 1 ? ', ' + top.slice(1).join(', ') : '');
 }
 
-function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
+function AiPickCard({ pick, rank, trackedKeys }: { pick: AiPick; rank: number; trackedKeys: Set<string> }) {
   const { row } = pick;
   const bookEdgeDisp = edgeDisplay(row.edge_book, row.has_line);
   const ppEdgeDisp   = edgeDisplay(row.edge_pp, row.pp_line != null);
   const playSide     = pick.trackSide === 'under' ? 'U' : 'O';
   const result       = row.actual_k != null ? resultForLine(row.actual_k, pick.trackLine, pick.trackSide) : null;
+  const isTracked    = trackedKeys.has(trackedKey(row.game_date, row.pitcher));
 
   return (
     <div style={{
@@ -645,6 +652,7 @@ function AiPickCard({ pick, rank }: { pick: AiPick; rank: number }) {
           side={pick.trackSide}
           odds={pick.trackOdds}
           edge={pick.trackEdge}
+          isTracked={isTracked}
         />
       </div>
     </div>
@@ -661,6 +669,25 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const [expandedRow,    setExpandedRow]    = useState<string | null>(null);
   const [searchQuery,    setSearchQuery]    = useState('');
   const [viewMode,       setViewMode]       = useState<'edge' | 'game' | 'ai'>('edge');
+  const [trackedKeys,    setTrackedKeys]    = useState<Set<string>>(new Set());
+
+  // Pull already-tracked (game_date, pitcher) pairs so TRACK buttons can show
+  // "TRACKED" instead, and refresh whenever the underlying rows change (e.g.
+  // after tracking a new play or navigating to a different date).
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/tracked')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (cancelled || !data?.bets) return;
+        const keys = new Set<string>(
+          data.bets.map((b: { game_date: unknown; pitcher: number }) => trackedKey(b.game_date, b.pitcher))
+        );
+        setTrackedKeys(keys);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rows]);
 
   function handleSort(key: SortKey | null) {
     if (!key) return;
@@ -926,7 +953,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
             </div>
           ) : (
             aiPicks.map((pick, i) => (
-              <AiPickCard key={`${pick.row.game_pk}-${pick.row.pitcher}`} pick={pick} rank={i + 1} />
+              <AiPickCard key={`${pick.row.game_pk}-${pick.row.pitcher}`} pick={pick} rank={i + 1} trackedKeys={trackedKeys} />
             ))
           )}
         </div>
@@ -1232,6 +1259,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         side={trackSide}
                         odds={trackOdds}
                         edge={trackEdge}
+                        isTracked={trackedKeys.has(trackedKey(row.game_date, row.pitcher))}
                       />
                     </td>
 

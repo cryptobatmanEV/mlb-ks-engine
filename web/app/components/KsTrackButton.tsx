@@ -15,6 +15,7 @@ type Props = {
   side:        string;
   odds:        number;
   edge:        number | null;
+  isTracked?:  boolean;
 };
 
 type Phase = 'idle' | 'open' | 'submitting' | 'done' | 'error';
@@ -31,7 +32,7 @@ const BTN: React.CSSProperties = {
 };
 
 export default function KsTrackButton({
-  gameDate, gamePk, pitcher, pitcherName, team, oppTeam, predK, line, side, odds, edge,
+  gameDate, gamePk, pitcher, pitcherName, team, oppTeam, predK, line, side, odds, edge, isTracked,
 }: Props) {
   const router = useRouter();
   const [phase,      setPhase]      = useState<Phase>('idle');
@@ -83,6 +84,24 @@ export default function KsTrackButton({
       setPhase('error');
       setTimeout(() => { setPhase('idle'); setErrorMsg(''); }, 8000);
     }
+  }
+
+  // Already tracked (from /api/tracked) and no action taken yet this session:
+  // muted "TRACKED" label instead of the TRACK button.
+  if (phase === 'idle' && isTracked) {
+    return (
+      <span
+        style={{
+          fontFamily:    'var(--font-mono)',
+          fontSize:      '10px',
+          letterSpacing: '2px',
+          textTransform: 'uppercase',
+          color:         'var(--ev-dim)',
+        }}
+      >
+        TRACKED
+      </span>
+    );
   }
 
   // IDLE: single green TRACK button
