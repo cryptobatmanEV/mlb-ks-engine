@@ -42,6 +42,19 @@ input[type='number'] { -moz-appearance: textfield; }
 /* Dim placeholder text */
 input::placeholder { color: var(--ev-dim); opacity: 1; }
 
+/* Loading spinner */
+@keyframes ks-spin { to { transform: rotate(360deg); } }
+
+.ks-spinner {
+  display:       inline-block;
+  width:         28px;
+  height:        28px;
+  border:        3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--ev-green);
+  border-radius: 50%;
+  animation:     ks-spin 0.8s linear infinite;
+}
+
 /* Modal overlay */
 .modal-overlay {
   position: fixed;

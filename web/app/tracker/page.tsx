@@ -8,6 +8,7 @@ import SignOutButton from '../components/SignOutButton';
 import { probOver } from '@/lib/poisson';
 import PerformanceCharts, { type PLPoint, type CalibPoint } from './PerformanceCharts';
 import BetsTable from './BetsTable';
+import LoadingTimeoutMessage from './LoadingTimeoutMessage';
 import { type TrackedBet, toISODate } from './shared';
 
 export const dynamic = 'force-dynamic';
@@ -102,7 +103,9 @@ export default function TrackerPage() {
 function TrackerSkeleton() {
   return (
     <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
-      <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>LOADING TRACKER...</div>
+      <div className="ks-spinner" style={{ marginBottom: '16px' }} />
+      <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>LOADING YOUR TRACKER...</div>
+      <LoadingTimeoutMessage />
     </div>
   );
 }
