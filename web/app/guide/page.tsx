@@ -32,6 +32,40 @@ const DEF: React.CSSProperties = {
   color:      'var(--ev-text)',
 };
 
+const STEP_NUM: React.CSSProperties = {
+  fontFamily:    'var(--font-syne)',
+  fontWeight:    800,
+  fontSize:      '20px',
+  color:         'var(--ev-green)',
+  lineHeight:    1,
+  minWidth:      '34px',
+};
+
+// ── How-to content ───────────────────────────────────────────────────────
+
+const FIND_PLAYS_STEPS: { title: string; def: string }[] = [
+  {
+    title: 'START WITH MODEL PROB',
+    def: "MODEL PROB is your primary signal — it's the model's confidence that the play wins. Above 60% means the model is highly confident. Sort the table by MODEL PROB to surface the strongest plays first.",
+  },
+  {
+    title: 'CONFIRM WITH SWSTR%',
+    def: "An elite swinging-strike rate (25%+) means the pitcher genuinely misses bats. This validates that the projection is backed by real stuff quality, not just a favorable matchup.",
+  },
+  {
+    title: 'CHECK PROJ Ks VS ADJ Ks',
+    def: "When these two numbers are close, the model and the market agree. A large gap means the market disagrees with the model — approach those plays with extra caution.",
+  },
+  {
+    title: 'USE THE MATCHUP',
+    def: "A high OPP K% means the opposing lineup strikes out often, which amplifies the projection. Expand the row for the full matchup breakdown, including OPP K%, OPP OPS, park factor, and weather.",
+  },
+  {
+    title: 'USE AI PICKS',
+    def: "The AI PICKS tab automatically surfaces the top plays, ranked by projection confidence — combining all of the above into a single shortlist.",
+  },
+];
+
 // ── Glossary content ────────────────────────────────────────────────────────
 
 const GLOSSARY: { term: string; def: string }[] = [
@@ -146,6 +180,41 @@ export default function GuidePage() {
             Our proprietary AI model analyzes dozens of pitching and matchup variables to project
             strikeout totals and identify value plays. The model is trained on millions of
             historical pitches and updated daily.
+          </p>
+        </div>
+
+        {/* How to find plays */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '16px' }}>HOW TO FIND PLAYS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            {FIND_PLAYS_STEPS.map(({ title, def }, i) => (
+              <div key={title} style={{ display: 'flex', gap: '14px' }}>
+                <div style={STEP_NUM}>{String(i + 1).padStart(2, '0')}</div>
+                <div>
+                  <div style={{ ...TERM, marginBottom: '4px' }}>{title}</div>
+                  <div style={DEF}>{def}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* How to use My Line */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '10px' }}>HOW TO USE MY LINE</div>
+          <p style={{ ...DEF, margin: '0 0 10px', color: 'var(--ev-muted)' }}>
+            MY LINE lets you check the model&apos;s edge on a specific number, independent of the
+            book and PrizePicks lines already shown on the card.
+          </p>
+          <p style={{ ...DEF, margin: '0 0 10px', color: 'var(--ev-muted)' }}>
+            Open the strikeout market for a pitcher on Novig or ProphetX, find the line being
+            offered there, and enter that number into MY LINE on the card. MY EDGE will then show
+            the value the model sees on that exact line — positive means the model favors the
+            over at that number, negative means it favors the under.
+          </p>
+          <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
+            Use MY EDGE to compare lines across books: if your book&apos;s number gives a bigger
+            edge than the BOOK EDGE or PP EDGE already shown, it may be the better place to play.
           </p>
         </div>
 

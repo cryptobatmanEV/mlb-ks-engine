@@ -62,6 +62,7 @@ input::placeholder { color: var(--ev-dim); opacity: 1; }
 }
 
 .ks-table-mobile { display: none; }
+.ks-mobile-sort  { display: none; }
 
 @media (max-width: 1400px) {
   .ks-table-wrap { --ks-pad-y: 7px; --ks-pad-x: 7px; --ks-font: 11px; }
@@ -76,6 +77,7 @@ input::placeholder { color: var(--ev-dim); opacity: 1; }
 @media (max-width: 768px) {
   .ks-table-desktop { display: none; }
   .ks-table-mobile  { display: flex; flex-direction: column; gap: 8px; }
+  .ks-mobile-sort   { display: flex; }
 }
 
 .ks-mobile-card {

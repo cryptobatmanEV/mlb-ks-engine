@@ -478,6 +478,7 @@ const COLS: ColDef[] = [
   { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
   { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
   { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
+  { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right' },
   { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
   { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
   { key: null,              label: 'MY LINE',   align: 'right', hide: 'lvl1' },
@@ -485,7 +486,7 @@ const COLS: ColDef[] = [
   { key: null,              label: '',          align: 'right' },
 ];
 
-// K/9 L10, SWSTR%, OPP K%, PARK, and GAME TIME are not shown as table columns --
+// K/9 L10, OPP K%, PARK, and GAME TIME are not shown as table columns --
 // they're available in the expanded detail card -- to keep TRACK visible
 // without horizontal scroll on desktop.
 
@@ -965,6 +966,49 @@ export default function KsTable({ rows }: { rows: Row[] }) {
         </span>
       </div>
 
+      {/* Mobile sort (<768px) */}
+      {viewMode !== 'ai' && (
+        <div className="ks-mobile-sort" style={{ gap: '8px', marginBottom: '8px' }}>
+          <select
+            value={sortKey}
+            onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
+            style={{
+              flex:          1,
+              background:    'rgba(255,255,255,0.04)',
+              border:        '1px solid rgba(255,255,255,0.1)',
+              borderRadius:  '2px',
+              color:         'var(--ev-text)',
+              fontFamily:    'var(--font-mono)',
+              fontSize:      '11px',
+              letterSpacing: '1.5px',
+              padding:       '7px 10px',
+              outline:       'none',
+            }}
+          >
+            <option value="pred_k">SORT: PROJ Ks</option>
+            <option value="adj_k">SORT: ADJ Ks</option>
+            <option value="edge_book">SORT: BOOK EDGE</option>
+            <option value="model_prob_book_line">SORT: MODEL PROB</option>
+            <option value="p_swstr_pct_10">SORT: SWSTR%</option>
+          </select>
+          <button
+            onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+            style={{
+              background:    'rgba(255,255,255,0.04)',
+              border:        '1px solid rgba(255,255,255,0.1)',
+              borderRadius:  '2px',
+              color:         'var(--ev-dim)',
+              fontFamily:    'var(--font-mono)',
+              fontSize:      '12px',
+              padding:       '7px 12px',
+              cursor:        'pointer',
+            }}
+          >
+            {sortDir === 'desc' ? '▼' : '▲'}
+          </button>
+        </div>
+      )}
+
       {/* AI Picks panel */}
       {viewMode === 'ai' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1204,6 +1248,11 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       {modelProbDisp.text}
                     </td>
 
+                    {/* SWSTR% */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: statColor('p_swstr_pct_10', row.p_swstr_pct_10) }}>
+                      {fmtPct1(row.p_swstr_pct_10)}
+                    </td>
+
                     {/* PP LINE */}
                     <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
                       {row.pp_line != null
@@ -1345,6 +1394,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   </div>
                 </div>
                 <div>
+                  <div style={LABEL}>ODDS</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: 'var(--ev-blue)' }}>
+                    {fmtOdds(trackOdds)}
+                  </div>
+                </div>
+                <div>
                   <div style={LABEL}>BOOK EDGE</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                     {bookEdgeDisp.text}
@@ -1354,6 +1409,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <div style={LABEL}>MODEL PROB</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
                     {modelProbDisp.text}
+                  </div>
+                </div>
+                <div>
+                  <div style={LABEL}>SWSTR%</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: statColor('p_swstr_pct_10', row.p_swstr_pct_10) }}>
+                    {fmtPct1(row.p_swstr_pct_10)}
                   </div>
                 </div>
                 <div onClick={e => e.stopPropagation()}>

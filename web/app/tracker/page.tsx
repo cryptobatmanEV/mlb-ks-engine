@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { getServerSession } from 'next-auth';
 import { getDb } from '@/lib/db';
 import { authOptions } from '@/lib/auth';
@@ -52,46 +53,76 @@ const CARD: React.CSSProperties = {
 };
 
 // ── Page ───────────────────────────────────────────────────────────────────
+//
+// The header and nav render immediately (no async work). The session check
+// and account data load inside a Suspense boundary so signed-out users see
+// the Sign In With Discord button right away, without waiting on tracker
+// data queries.
 
-export default async function TrackerPage() {
+export default function TrackerPage() {
+  return (
+    <main style={{ minHeight: '100vh', background: 'var(--ev-bg)', padding: '32px 20px 60px' }}>
+      <div style={{ maxWidth: '1380px', margin: '0 auto' }}>
+
+        {/* Header */}
+        <header style={{ marginBottom: '28px' }}>
+          <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
+            THE +EV CAVE
+          </div>
+          <h1 style={{
+            fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
+            margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
+          }}>
+            TRACKER
+          </h1>
+          <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
+            PERFORMANCE HISTORY
+          </div>
+        </header>
+
+        {/* Nav */}
+        <Nav active="tracker" />
+
+        {/* Account-dependent content */}
+        <Suspense fallback={<TrackerSkeleton />}>
+          <TrackerBody />
+        </Suspense>
+
+        {/* Footer */}
+        <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
+          RESULTS UPDATE AFTER GAMES FINISH &nbsp;&middot;&nbsp;
+          FOR ENTERTAINMENT PURPOSES ONLY
+        </div>
+
+      </div>
+    </main>
+  );
+}
+
+function TrackerSkeleton() {
+  return (
+    <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
+      <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>LOADING TRACKER...</div>
+    </div>
+  );
+}
+
+// ── Account-dependent body ───────────────────────────────────────────────
+
+async function TrackerBody() {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
     return (
-      <main style={{ minHeight: '100vh', background: 'var(--ev-bg)', padding: '32px 20px 60px' }}>
-        <div style={{ maxWidth: '1380px', margin: '0 auto' }}>
-
-          {/* Header */}
-          <header style={{ marginBottom: '28px' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
-              THE +EV CAVE
-            </div>
-            <h1 style={{
-              fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
-              margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
-            }}>
-              TRACKER
-            </h1>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
-              PERFORMANCE HISTORY
-            </div>
-          </header>
-
-          {/* Nav */}
-          <Nav active="tracker" />
-
-          <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '16px' }}>
-              SIGN IN TO VIEW YOUR TRACKER
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--ev-dim)', marginBottom: '20px' }}>
-              Sign in with Discord to track your picks and see your personal performance history.
-            </div>
-            <SignInWithDiscord callbackUrl="/tracker" />
-          </div>
-
+      <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
+        <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '16px' }}>
+          SIGN IN TO VIEW YOUR TRACKER
         </div>
-      </main>
+        <div style={{ fontSize: '11px', color: 'var(--ev-dim)', marginBottom: '20px' }}>
+          Sign in with Discord to track your picks and see your personal performance history.
+        </div>
+        <SignInWithDiscord callbackUrl="/tracker" />
+      </div>
     );
   }
 
@@ -227,144 +258,112 @@ export default async function TrackerPage() {
   const winRate     = decided > 0 ? (wins / decided * 100).toFixed(1) + '%' : '—';
 
   return (
-    <main style={{ minHeight: '100vh', background: 'var(--ev-bg)', padding: '32px 20px 60px' }}>
-      <div style={{ maxWidth: '1380px', margin: '0 auto' }}>
-
-        {/* Header */}
-        <header style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ ...LABEL, color: 'var(--ev-green)', letterSpacing: '3px', marginBottom: '8px' }}>
-              THE +EV CAVE
-            </div>
-            <h1 style={{
-              fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '26px',
-              margin: 0, letterSpacing: '-0.5px', color: 'var(--ev-text)',
-            }}>
-              TRACKER
-            </h1>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginTop: '6px', letterSpacing: '1px' }}>
-              PERFORMANCE HISTORY
-            </div>
-          </div>
-
-          {/* Discord identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {discordImage && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={discordImage}
-                alt={discordUsername}
-                width={32}
-                height={32}
-                style={{ borderRadius: '50%', border: '1px solid var(--ev-border)' }}
-              />
-            )}
-            <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ev-text)', fontWeight: 600 }}>
-                {discordUsername}
-              </div>
-              <SignOutButton />
-            </div>
-          </div>
-        </header>
-
-        {/* Nav */}
-        <Nav active="tracker" />
-
-        {/* Content */}
-        {dbError ? (
-          <div style={{ ...CARD, padding: '40px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>
-              Something went wrong loading your tracker. Please try again later.
-            </div>
-          </div>
-        ) : totalBets === 0 ? (
-          <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
-            <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '6px' }}>NO BETS TRACKED YET</div>
-            <div style={{ fontSize: '11px', color: 'var(--ev-dim)' }}>
-              Hit TRACK on any play from the CARD page to start.
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Stats grid */}
-            <div style={{
-              display:             'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap:                 '1px',
-              background:          'var(--ev-border)',
-              border:              '1px solid var(--ev-border)',
-              borderRadius:        '2px',
-              overflow:            'hidden',
-              marginBottom:        '16px',
-            }}>
-              {([
-                {
-                  label: 'BETS',
-                  value: String(totalBets),
-                  sub:   totalBets - settledBets > 0
-                    ? `${totalBets - settledBets} PENDING`
-                    : 'ALL SETTLED',
-                  color: 'var(--ev-text)',
-                },
-                {
-                  label: 'WIN RATE',
-                  value: winRate,
-                  sub:   decided > 0 ? `${wins}W / ${decided - wins}L` : `${settledBets} SETTLED`,
-                  color: 'var(--ev-text)',
-                },
-                {
-                  label: 'P/L',
-                  value: fmtPL(profit, settledBets),
-                  sub:   `${settledBets} SETTLED`,
-                  color: settledBets === 0
-                    ? 'var(--ev-dim)'
-                    : profit >= 0 ? 'var(--ev-green)' : 'var(--ev-red)',
-                },
-                {
-                  label: 'ROI',
-                  value: fmtROI(profit, staked),
-                  sub:   `${staked.toFixed(1)}u STAKED`,
-                  color: staked === 0
-                    ? 'var(--ev-dim)'
-                    : profit >= 0 ? 'var(--ev-green)' : 'var(--ev-red)',
-                },
-              ] as { label: string; value: string; sub: string; color: string }[]).map(
-                ({ label, value, sub, color }) => (
-                  <div key={label} style={{ background: 'var(--ev-bg)', padding: '16px 18px' }}>
-                    <div style={LABEL}>{label}</div>
-                    <div style={{
-                      fontFamily: 'var(--font-syne)', fontWeight: 800,
-                      fontSize: '22px', color, margin: '8px 0 4px', letterSpacing: '-0.5px',
-                    }}>
-                      {value}
-                    </div>
-                    <div style={{ ...LABEL, fontSize: '9px' }}>{sub}</div>
-                  </div>
-                )
-              )}
-            </div>
-
-            {/* Performance charts */}
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ ...LABEL, letterSpacing: '3px', marginBottom: '12px' }}>
-                PERFORMANCE
-              </div>
-              <PerformanceCharts plData={plData} calibData={calibData} />
-            </div>
-
-            {/* Bets table */}
-            <BetsTable bets={bets} />
-          </>
+    <>
+      {/* Discord identity */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+        {discordImage && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={discordImage}
+            alt={discordUsername}
+            width={32}
+            height={32}
+            style={{ borderRadius: '50%', border: '1px solid var(--ev-border)' }}
+          />
         )}
-
-        {/* Footer */}
-        <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
-          RESULTS UPDATE AFTER GAMES FINISH &nbsp;&middot;&nbsp;
-          FOR ENTERTAINMENT PURPOSES ONLY
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ev-text)', fontWeight: 600 }}>
+            {discordUsername}
+          </div>
+          <SignOutButton />
         </div>
-
       </div>
-    </main>
+
+      {dbError ? (
+        <div style={{ ...CARD, padding: '40px', textAlign: 'center' }}>
+          <div style={{ ...LABEL, color: 'var(--ev-muted)' }}>
+            Something went wrong loading your tracker. Please try again later.
+          </div>
+        </div>
+      ) : totalBets === 0 ? (
+        <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
+          <div style={{ ...LABEL, color: 'var(--ev-muted)', marginBottom: '6px' }}>NO BETS TRACKED YET</div>
+          <div style={{ fontSize: '11px', color: 'var(--ev-dim)' }}>
+            Hit TRACK on any play from the CARD page to start.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Stats grid */}
+          <div style={{
+            display:             'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap:                 '1px',
+            background:          'var(--ev-border)',
+            border:              '1px solid var(--ev-border)',
+            borderRadius:        '2px',
+            overflow:            'hidden',
+            marginBottom:        '16px',
+          }}>
+            {([
+              {
+                label: 'BETS',
+                value: String(totalBets),
+                sub:   totalBets - settledBets > 0
+                  ? `${totalBets - settledBets} PENDING`
+                  : 'ALL SETTLED',
+                color: 'var(--ev-text)',
+              },
+              {
+                label: 'WIN RATE',
+                value: winRate,
+                sub:   decided > 0 ? `${wins}W / ${decided - wins}L` : `${settledBets} SETTLED`,
+                color: 'var(--ev-text)',
+              },
+              {
+                label: 'P/L',
+                value: fmtPL(profit, settledBets),
+                sub:   `${settledBets} SETTLED`,
+                color: settledBets === 0
+                  ? 'var(--ev-dim)'
+                  : profit >= 0 ? 'var(--ev-green)' : 'var(--ev-red)',
+              },
+              {
+                label: 'ROI',
+                value: fmtROI(profit, staked),
+                sub:   `${staked.toFixed(1)}u STAKED`,
+                color: staked === 0
+                  ? 'var(--ev-dim)'
+                  : profit >= 0 ? 'var(--ev-green)' : 'var(--ev-red)',
+              },
+            ] as { label: string; value: string; sub: string; color: string }[]).map(
+              ({ label, value, sub, color }) => (
+                <div key={label} style={{ background: 'var(--ev-bg)', padding: '16px 18px' }}>
+                  <div style={LABEL}>{label}</div>
+                  <div style={{
+                    fontFamily: 'var(--font-syne)', fontWeight: 800,
+                    fontSize: '22px', color, margin: '8px 0 4px', letterSpacing: '-0.5px',
+                  }}>
+                    {value}
+                  </div>
+                  <div style={{ ...LABEL, fontSize: '9px' }}>{sub}</div>
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Performance charts */}
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ ...LABEL, letterSpacing: '3px', marginBottom: '12px' }}>
+              PERFORMANCE
+            </div>
+            <PerformanceCharts plData={plData} calibData={calibData} />
+          </div>
+
+          {/* Bets table */}
+          <BetsTable bets={bets} />
+        </>
+      )}
+    </>
   );
 }
