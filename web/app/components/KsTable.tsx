@@ -478,17 +478,16 @@ const COLS: ColDef[] = [
   { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
   { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
   { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
-  { key: 'pp_line',         label: 'PP LINE',   align: 'right', hide: 'lvl2' },
-  { key: 'edge_pp',         label: 'PP EDGE',   align: 'right', hide: 'lvl2' },
+  { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
+  { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
   { key: null,              label: 'MY LINE',   align: 'right', hide: 'lvl1' },
   { key: null,              label: 'MY EDGE',   align: 'right', hide: 'lvl1' },
-  { key: 'p_k_per9_10',     label: 'K/9 L10',   align: 'right', hide: 'lvl1' },
-  { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right', hide: 'lvl1' },
-  { key: 'opp_k_pct_15',    label: 'OPP K%',    align: 'right', hide: 'lvl1' },
-  { key: 'park_k_factor',   label: 'PARK',      align: 'right', hide: 'lvl1' },
-  { key: 'game_time',       label: 'GAME TIME', align: 'right', hide: 'lvl1' },
   { key: null,              label: '',          align: 'right' },
 ];
+
+// K/9 L10, SWSTR%, OPP K%, PARK, and GAME TIME are not shown as table columns --
+// they're available in the expanded detail card -- to keep TRACK visible
+// without horizontal scroll on desktop.
 
 // Result column (ACTUAL Ks) is only spliced into COLS for past dates once
 // actual_k has been logged -- see `cols` in the component. The W/L result
@@ -1206,14 +1205,14 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* PP LINE */}
-                    <td className="ks-col-lvl2" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
                       {row.pp_line != null
                         ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}`
                         : '—'}
                     </td>
 
                     {/* PP EDGE */}
-                    <td className="ks-col-lvl2" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
                       {ppEdgeDisp.text}
                     </td>
 
@@ -1248,31 +1247,6 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       {customNum != null && mySide && myEdgeDisp.text !== '—'
                         ? `${mySide === 'under' ? 'U' : 'O'} ${myEdgeDisp.text}`
                         : myEdgeDisp.text}
-                    </td>
-
-                    {/* K/9 L10 */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
-                      {fmtNum(row.p_k_per9_10, 2)}
-                    </td>
-
-                    {/* SWSTR% */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
-                      {fmtPct1(row.p_swstr_pct_10)}
-                    </td>
-
-                    {/* OPP K% */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
-                      {fmtPct1(row.opp_k_pct_15)}
-                    </td>
-
-                    {/* PARK */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
-                      {fmtInt(row.park_k_factor)}
-                    </td>
-
-                    {/* GAME TIME */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-dim)', fontSize: '11px' }}>
-                      {fmtGameTime(row.game_time)}
                     </td>
 
                     {/* TRACK */}
