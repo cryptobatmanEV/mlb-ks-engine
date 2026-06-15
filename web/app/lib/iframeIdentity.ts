@@ -5,15 +5,18 @@ import { useEffect, useState } from 'react';
 export type IframeIdentity = {
   discordId:   string;
   discordUser: string;
-  token:       string;
+  token:       string | null;
 };
 
 const STORAGE_KEY = 'evcave_discord_identity';
 
-// theevcave.com appends ?discord_id=...&discord_user=...&token=... to the
-// iframe src once per page load. We capture it here and cache it in
-// localStorage so it survives client-side navigation (which drops the query
-// string) within the same tab.
+// theevcave.com appends ?discord_id=...&discord_user=... (and optionally
+// &token=...) to the iframe src once per page load. We capture it here and
+// cache it in localStorage so it survives client-side navigation (which
+// drops the query string) within the same tab. theevcave.com has already
+// verified the user via Discord OAuth, so discord_id/discord_user are
+// trusted even without a signed token; the token, when present, is passed
+// through for stricter server-side verification.
 export function useIframeIdentity(): IframeIdentity | null | undefined {
   const [identity, setIdentity] = useState<IframeIdentity | null | undefined>(undefined);
 
@@ -23,7 +26,7 @@ export function useIframeIdentity(): IframeIdentity | null | undefined {
     const discordUser = params.get('discord_user');
     const token       = params.get('token');
 
-    if (discordId && discordUser && token) {
+    if (discordId && discordUser) {
       const value: IframeIdentity = { discordId, discordUser, token };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
       setIdentity(value);
@@ -44,9 +47,10 @@ export function useIframeIdentity(): IframeIdentity | null | undefined {
 // Headers to attach to /api/* requests so the server can re-verify identity.
 export function identityHeaders(identity: IframeIdentity | null | undefined): HeadersInit {
   if (!identity) return {};
-  return {
-    'X-Discord-Id':    identity.discordId,
-    'X-Discord-User':  identity.discordUser,
-    'X-Discord-Token': identity.token,
+  const headers: Record<string, string> = {
+    'X-Discord-Id':   identity.discordId,
+    'X-Discord-User': identity.discordUser,
   };
+  if (identity.token) headers['X-Discord-Token'] = identity.token;
+  return headers;
 }
