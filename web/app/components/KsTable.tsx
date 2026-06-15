@@ -560,7 +560,10 @@ function resultForRow(row: Row): { text: string; color: string } | null {
 
 const AI_PICK_LIMIT = 5;
 const AI_MIN_SWSTR = 0.20;
-const AI_MIN_K9 = 7.0;
+const AI_MIN_MODEL_PROB = 0.55;
+const AI_K9_BASELINE = 7.0;
+const AI_SWSTR_BASELINE = 0.20;
+const AI_OPP_K_BASELINE = 0.20;
 
 type AiPick = {
   row: Row;
@@ -573,9 +576,10 @@ type AiPick = {
   trackEdge: number | null;
 };
 
-// Builds a one-line "why this pick" summary, leading with projection-quality
-// and matchup factors (stuff, recent K production, opponent) and treating
-// market edge as a secondary, lower-priority signal.
+// Builds a one-line "why this pick" summary. Always leads with MODEL PROB
+// (the most direct "will this play win" signal -- qualification guarantees
+// it's present and > AI_MIN_MODEL_PROB for every pick), then 1-2 secondary
+// factors.
 //
 // For UNDER plays, elite SWSTR%/K9 are signals for high K output and would
 // read as a contradiction next to an under recommendation, so they're
@@ -591,9 +595,15 @@ function buildPickReason(
   oppKBonus: number,
   edgeBonus: number,
 ): string {
+  const lead = row.model_prob_book_line != null
+    ? `${(row.model_prob_book_line * 100).toFixed(1)}% model confidence`
+    : null;
+
   if (trackSide === 'under') {
     const adjK = row.adj_k ?? row.pred_k;
-    const parts = [`Projected ${row.pred_k.toFixed(2)} Ks vs ${trackLine} line — model favors the under`];
+    const parts: string[] = [];
+    if (lead) parts.push(lead);
+    parts.push(`projected ${row.pred_k.toFixed(2)} Ks vs ${trackLine} line favors the under`);
 
     if (adjK <= trackLine - 0.5) {
       parts.push(`ADJ Ks (${adjK.toFixed(2)}) also well below the line`);
@@ -601,36 +611,41 @@ function buildPickReason(
     if (agreementBonus > 0.35) {
       parts.push('model/market consensus');
     }
-    if (edgeBonus > 0.015) {
+    if (edgeBonus > 0.1) {
       const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
       parts.push(`positive market edge (+${edgePct}%)`);
     }
 
-    return parts.join(', ');
+    const joined = parts.join(', ');
+    return joined.charAt(0).toUpperCase() + joined.slice(1);
   }
 
   const factors: { label: string; weight: number }[] = [];
 
   if (row.p_swstr_pct_10 != null) {
-    factors.push({ label: `elite SWSTR% (${fmtPct1(row.p_swstr_pct_10)})`, weight: swstrBonus + 1.0 });
+    factors.push({ label: `elite SWSTR% (${fmtPct1(row.p_swstr_pct_10)})`, weight: swstrBonus });
   }
   if (oppKBonus > 0 && row.opp_k_pct_15 != null) {
-    factors.push({ label: `favorable OPP K% (${fmtPct1(row.opp_k_pct_15)})`, weight: oppKBonus + 0.8 });
+    factors.push({ label: `favorable OPP K% (${fmtPct1(row.opp_k_pct_15)})`, weight: oppKBonus });
   }
   if (k9Bonus > 0.03 && row.p_k_per9_10 != null) {
-    factors.push({ label: `strong K/9 L10 (${fmtNum(row.p_k_per9_10, 1)})`, weight: k9Bonus + 0.6 });
+    factors.push({ label: `strong K/9 L10 (${fmtNum(row.p_k_per9_10, 1)})`, weight: k9Bonus });
   }
   if (agreementBonus > 0.35) {
-    factors.push({ label: 'model/market consensus', weight: agreementBonus + 0.4 });
+    factors.push({ label: 'model/market consensus', weight: agreementBonus });
   }
-  if (edgeBonus > 0.015) {
+  if (edgeBonus > 0.1) {
     const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
     factors.push({ label: `positive market edge (+${edgePct}%)`, weight: edgeBonus });
   }
 
   factors.sort((a, b) => b.weight - a.weight);
-  const top = factors.slice(0, 3).map(f => f.label);
-  return top[0].charAt(0).toUpperCase() + top[0].slice(1) + (top.length > 1 ? ', ' + top.slice(1).join(', ') : '');
+  const secondary = factors.slice(0, lead ? 2 : 3).map(f => f.label);
+  const parts = lead ? [lead, ...secondary] : secondary;
+
+  if (parts.length === 0) return lead ?? 'Model favors this play';
+  const joined = parts.join(', ');
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
 }
 
 function AiPickCard({ pick, rank, trackedKeys, authHeaders }: { pick: AiPick; rank: number; trackedKeys: Set<string>; authHeaders?: HeadersInit }) {
@@ -880,15 +895,15 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   }, [filtered]);
 
   // AI Picks: curated top plays for the day, independent of search/filters,
-  // ranked by projection confidence -- pitch quality (SWSTR%), recent K
-  // production, model/market agreement, and matchup, with market edge as a
-  // secondary factor.
+  // ranked primarily by MODEL PROB (model_prob_book_line -- the most direct
+  // "will this play win" signal), backed up by pitch quality (SWSTR%),
+  // market edge, recent K production, model/market agreement, and matchup.
   const aiPicks = useMemo((): AiPick[] => {
     const candidates: AiPick[] = [];
 
     for (const row of rows) {
-      if (row.p_swstr_pct_10 == null || row.p_k_per9_10 == null) continue;
-      if (row.p_swstr_pct_10 <= AI_MIN_SWSTR || row.p_k_per9_10 <= AI_MIN_K9) continue;
+      if (row.model_prob_book_line == null || row.p_swstr_pct_10 == null) continue;
+      if (row.model_prob_book_line <= AI_MIN_MODEL_PROB || row.p_swstr_pct_10 <= AI_MIN_SWSTR) continue;
 
       const adjK = row.adj_k ?? row.pred_k;
 
@@ -918,14 +933,14 @@ export default function KsTable({ rows }: { rows: Row[] }) {
         trackEdge   = null;
       }
 
-      const swstrBonus     = (row.p_swstr_pct_10 - 0.20) * 5;
-      const k9Bonus        = (row.p_k_per9_10 - 7.0) * 0.03;
+      const modelProbBonus = row.model_prob_book_line * 4;
+      const swstrBonus     = (row.p_swstr_pct_10 - AI_SWSTR_BASELINE) * 3;
+      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, 0) * 2;
+      const k9Bonus        = row.p_k_per9_10 != null ? (row.p_k_per9_10 - AI_K9_BASELINE) * 0.03 : 0;
       const agreementBonus = (1 - Math.abs(row.pred_k - adjK)) * 0.5;
-      const oppKBonus      = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - 0.20) * 2 : 0;
-      const adjKBonus      = adjK * 0.02;
-      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, 0) * 0.3;
+      const oppKBonus      = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - AI_OPP_K_BASELINE) * 1.5 : 0;
 
-      const compositeScore = swstrBonus + k9Bonus + agreementBonus + oppKBonus + adjKBonus + edgeBonus;
+      const compositeScore = modelProbBonus + swstrBonus + edgeBonus + k9Bonus + agreementBonus + oppKBonus;
       const reason = buildPickReason(row, trackSide, trackLine, swstrBonus, k9Bonus, agreementBonus, oppKBonus, edgeBonus);
 
       candidates.push({ row, compositeScore, reason, trackSource, trackLine, trackSide, trackOdds, trackEdge });
