@@ -433,14 +433,15 @@ function getSortVal(row: Row, key: SortKey): string | number | null {
   return row[key as keyof Row] as string | number | null;
 }
 
-// TRACK button line/odds/edge/side: book line > PP line > model projection,
-// default -110. Shared by the desktop table, mobile cards, and AI Picks.
+// TRACK button line/odds/edge/side: book line > PP line (-119, PrizePicks
+// standard pick'em) > model projection (-110 default). Shared by the desktop
+// table, mobile cards, and AI Picks.
 function getTrackInfo(row: Row): { trackLine: number; trackOdds: number; trackEdge: number | null; trackSide: string } {
   if (row.has_line && row.book_line != null) {
     return { trackLine: row.book_line, trackOdds: row.best_odds ?? -110, trackEdge: row.edge_book, trackSide: row.book_side ?? 'over' };
   }
   if (row.pp_line != null) {
-    return { trackLine: row.pp_line, trackOdds: -110, trackEdge: row.edge_pp, trackSide: row.pp_side ?? 'over' };
+    return { trackLine: row.pp_line, trackOdds: -119, trackEdge: row.edge_pp, trackSide: row.pp_side ?? 'over' };
   }
   return { trackLine: Math.floor(row.pred_k) + 0.5, trackOdds: -110, trackEdge: null, trackSide: 'over' };
 }
@@ -532,14 +533,39 @@ type AiPick = {
 // Builds a one-line "why this pick" summary, leading with projection-quality
 // and matchup factors (stuff, recent K production, opponent) and treating
 // market edge as a secondary, lower-priority signal.
+//
+// For UNDER plays, elite SWSTR%/K9 are signals for high K output and would
+// read as a contradiction next to an under recommendation, so they're
+// omitted in favor of the projection-vs-line comparison that actually
+// motivates the under.
 function buildPickReason(
   row: Row,
+  trackSide: string,
+  trackLine: number,
   swstrBonus: number,
   k9Bonus: number,
   agreementBonus: number,
   oppKBonus: number,
   edgeBonus: number,
 ): string {
+  if (trackSide === 'under') {
+    const adjK = row.adj_k ?? row.pred_k;
+    const parts = [`Projected ${row.pred_k.toFixed(2)} Ks vs ${trackLine} line — model favors the under`];
+
+    if (adjK <= trackLine - 0.5) {
+      parts.push(`ADJ Ks (${adjK.toFixed(2)}) also well below the line`);
+    }
+    if (agreementBonus > 0.35) {
+      parts.push('model/market consensus');
+    }
+    if (edgeBonus > 0.015) {
+      const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
+      parts.push(`positive market edge (+${edgePct}%)`);
+    }
+
+    return parts.join(', ');
+  }
+
   const factors: { label: string; weight: number }[] = [];
 
   if (row.p_swstr_pct_10 != null) {
@@ -654,6 +680,15 @@ function AiPickCard({ pick, rank, trackedKeys, authHeaders }: { pick: AiPick; ra
             {modelProbDisp.text}
           </div>
         </div>
+
+        {row.pp_line != null && (
+          <div>
+            <div style={LABEL}>PP PLAY</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--ev-text)', marginTop: '4px' }}>
+              {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
+            </div>
+          </div>
+        )}
 
         <div>
           <div style={LABEL}>PP EDGE</div>
@@ -830,7 +865,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
         trackSource = 'pp';
         trackLine   = row.pp_line;
         trackSide   = row.pp_side ?? 'over';
-        trackOdds   = -110;
+        trackOdds   = -119;
         trackEdge   = row.edge_pp;
       } else {
         trackSource = 'model';
@@ -848,7 +883,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
       const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, 0) * 0.3;
 
       const compositeScore = swstrBonus + k9Bonus + agreementBonus + oppKBonus + adjKBonus + edgeBonus;
-      const reason = buildPickReason(row, swstrBonus, k9Bonus, agreementBonus, oppKBonus, edgeBonus);
+      const reason = buildPickReason(row, trackSide, trackLine, swstrBonus, k9Bonus, agreementBonus, oppKBonus, edgeBonus);
 
       candidates.push({ row, compositeScore, reason, trackSource, trackLine, trackSide, trackOdds, trackEdge });
     }
@@ -1125,7 +1160,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               const myEdge     = myProb != null ? myProb - 0.5 : null;
               const myEdgeDisp = edgeDisplay(myEdge, customNum != null);
 
-              // TRACK button: book line > PP line > custom MY LINE, default -110
+              // TRACK button: book line > PP line (-119) > custom MY LINE, default -110
               let trackLine: number;
               let trackOdds: number;
               let trackEdge: number | null;
@@ -1137,7 +1172,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                 trackSide = row.book_side ?? 'over';
               } else if (row.pp_line != null) {
                 trackLine = row.pp_line;
-                trackOdds = -110;
+                trackOdds = -119;
                 trackEdge = row.edge_pp;
                 trackSide = row.pp_side ?? 'over';
               } else if (customNum != null) {
