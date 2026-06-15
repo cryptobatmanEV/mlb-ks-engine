@@ -204,7 +204,7 @@ function fmtGameTime(iso: string | null): string {
   }
 }
 
-function DetailCard({ row }: { row: Row }) {
+function DetailCard({ row, showMarket }: { row: Row; showMarket?: boolean }) {
   const SECTION_LABEL: React.CSSProperties = {
     fontFamily:    'var(--font-mono)',
     fontSize:      '9px',
@@ -240,6 +240,49 @@ function DetailCard({ row }: { row: Row }) {
       borderTop:  '1px solid var(--ev-border)',
     }}>
       <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
+
+        {/* Market (mobile only -- desktop already shows these as columns) */}
+        {showMarket && (
+          <>
+            <div>
+              <div style={SECTION_LABEL}>MARKET</div>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>BOOK O/U</div>
+                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+                    {row.has_line ? `${row.book_side === 'under' ? 'U' : 'O'} ${row.book_line}` : '—'}
+                  </div>
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>BOOK EDGE</div>
+                  {(() => {
+                    const d = edgeDisplay(row.edge_book, row.has_line);
+                    return (
+                      <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>
+                    );
+                  })()}
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>PP LINE</div>
+                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+                    {row.pp_line != null ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}` : '—'}
+                  </div>
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>PP EDGE</div>
+                  {(() => {
+                    const d = edgeDisplay(row.edge_pp, row.pp_line != null);
+                    return (
+                      <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {DIVIDER}
+          </>
+        )}
 
         {/* Pitcher form L10 */}
         <div>
@@ -1480,7 +1523,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
               {isExpanded && (
                 <div style={{ overflowX: 'auto', margin: '10px -14px -12px' }}>
-                  <DetailCard row={row} />
+                  <DetailCard row={row} showMarket />
                 </div>
               )}
             </div>
