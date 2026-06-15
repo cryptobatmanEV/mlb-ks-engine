@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
 const BTN: React.CSSProperties = {
@@ -26,12 +25,15 @@ const HINT: React.CSSProperties = {
   marginTop:     '10px',
 };
 
+// Discord auth always lands on /auth/success, which either posts a message
+// back to this tab (popup flow) or continues on to /tracker (direct visit).
+const AUTH_CALLBACK_URL = '/auth/success';
+
 function isMobileDevice() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-export default function SignInWithDiscord({ callbackUrl }: { callbackUrl?: string }) {
-  const router = useRouter();
+export default function SignInWithDiscord() {
   const [inIframe, setInIframe] = useState(false);
 
   // Mobile browsers (and Discord's embedded webview) block OAuth redirects
@@ -41,17 +43,28 @@ export default function SignInWithDiscord({ callbackUrl }: { callbackUrl?: strin
     setInIframe(window.self !== window.top);
   }, []);
 
+  // When the popup tab finishes Discord auth, /auth/success posts this
+  // message back so the embedded iframe can reload with the new session.
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (e.origin !== 'https://theevcave.com' && e.origin !== 'https://mlb-ks-engine.vercel.app') return;
+      if (e.data === 'discord-auth-success') {
+        window.location.reload();
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   function handleClick() {
     if (inIframe || isMobileDevice()) {
-      const url = callbackUrl
-        ? `/api/auth/signin/discord?callbackUrl=${encodeURIComponent(callbackUrl)}`
-        : '/api/auth/signin/discord';
-      window.open(url, '_blank');
-      // Pick up the new session once the user comes back to this tab.
-      window.addEventListener('focus', () => router.refresh(), { once: true });
+      window.open(
+        `/api/auth/signin/discord?callbackUrl=${encodeURIComponent(AUTH_CALLBACK_URL)}`,
+        '_blank'
+      );
       return;
     }
-    signIn('discord', { callbackUrl });
+    signIn('discord', { callbackUrl: AUTH_CALLBACK_URL });
   }
 
   return (

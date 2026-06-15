@@ -124,7 +124,7 @@ async function TrackerBody() {
         <div style={{ fontSize: '11px', color: 'var(--ev-dim)', marginBottom: '20px' }}>
           Sign in with Discord to track your picks and see your personal performance history.
         </div>
-        <SignInWithDiscord callbackUrl="/tracker" />
+        <SignInWithDiscord />
       </div>
     );
   }
