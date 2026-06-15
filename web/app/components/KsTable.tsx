@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import KsTrackButton from './KsTrackButton';
 import { probOver } from '@/lib/poisson';
+import { useIframeIdentity, identityHeaders } from '../lib/iframeIdentity';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -563,7 +564,7 @@ function buildPickReason(
   return top[0].charAt(0).toUpperCase() + top[0].slice(1) + (top.length > 1 ? ', ' + top.slice(1).join(', ') : '');
 }
 
-function AiPickCard({ pick, rank, trackedKeys }: { pick: AiPick; rank: number; trackedKeys: Set<string> }) {
+function AiPickCard({ pick, rank, trackedKeys, authHeaders }: { pick: AiPick; rank: number; trackedKeys: Set<string>; authHeaders?: HeadersInit }) {
   const { row } = pick;
   const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
   const ppEdgeDisp    = edgeDisplay(row.edge_pp, row.pp_line != null);
@@ -682,6 +683,7 @@ function AiPickCard({ pick, rank, trackedKeys }: { pick: AiPick; rank: number; t
           odds={pick.trackOdds}
           edge={pick.trackEdge}
           isTracked={isTracked}
+          authHeaders={authHeaders}
         />
       </div>
     </div>
@@ -700,12 +702,16 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const [viewMode,       setViewMode]       = useState<'edge' | 'game' | 'ai'>('edge');
   const [trackedKeys,    setTrackedKeys]    = useState<Set<string>>(new Set());
 
+  const identity   = useIframeIdentity();
+  const authHeaders = identityHeaders(identity);
+
   // Pull already-tracked (game_date, pitcher) pairs so TRACK buttons can show
   // "TRACKED" instead, and refresh whenever the underlying rows change (e.g.
   // after tracking a new play or navigating to a different date).
   useEffect(() => {
+    if (identity === undefined) return;
     let cancelled = false;
-    fetch('/api/tracked')
+    fetch('/api/tracked', { headers: identityHeaders(identity) })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (cancelled || !data?.bets) return;
@@ -716,7 +722,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [rows]);
+  }, [rows, identity]);
 
   function handleSort(key: SortKey | null) {
     if (!key) return;
@@ -1024,7 +1030,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
             </div>
           ) : (
             aiPicks.map((pick, i) => (
-              <AiPickCard key={`${pick.row.game_pk}-${pick.row.pitcher}`} pick={pick} rank={i + 1} trackedKeys={trackedKeys} />
+              <AiPickCard key={`${pick.row.game_pk}-${pick.row.pitcher}`} pick={pick} rank={i + 1} trackedKeys={trackedKeys} authHeaders={authHeaders} />
             ))
           )}
         </div>
@@ -1316,6 +1322,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         odds={trackOdds}
                         edge={trackEdge}
                         isTracked={trackedKeys.has(trackedKey(row.game_date, row.pitcher))}
+                        authHeaders={authHeaders}
                       />
                     </td>
 
@@ -1431,6 +1438,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     odds={trackOdds}
                     edge={trackEdge}
                     isTracked={trackedKeys.has(trackedKey(row.game_date, row.pitcher))}
+                    authHeaders={authHeaders}
                   />
                 </div>
               </div>

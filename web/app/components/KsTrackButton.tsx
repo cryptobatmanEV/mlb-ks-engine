@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 
 type Props = {
   gameDate:    string;
@@ -17,6 +16,7 @@ type Props = {
   odds:        number;
   edge:        number | null;
   isTracked?:  boolean;
+  authHeaders?: HeadersInit;
 };
 
 type Phase = 'idle' | 'open' | 'submitting' | 'done' | 'error';
@@ -33,10 +33,9 @@ const BTN: React.CSSProperties = {
 };
 
 export default function KsTrackButton({
-  gameDate, gamePk, pitcher, pitcherName, team, oppTeam, predK, line, side, odds, edge, isTracked,
+  gameDate, gamePk, pitcher, pitcherName, team, oppTeam, predK, line, side, odds, edge, isTracked, authHeaders,
 }: Props) {
   const router = useRouter();
-  const { status } = useSession();
   const [phase,      setPhase]      = useState<Phase>('idle');
   const [stake,      setStake]      = useState('1');
   const [savedStake, setSavedStake] = useState('1');
@@ -67,7 +66,7 @@ export default function KsTrackButton({
     try {
       const res  = await fetch(url, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body,
       });
       const text = await res.text();
@@ -111,7 +110,6 @@ export default function KsTrackButton({
     return (
       <button
         onClick={() => setPhase('open')}
-        title={status !== 'authenticated' ? 'Sign in to track' : undefined}
         style={{
           ...BTN,
           color:      'var(--ev-green)',
