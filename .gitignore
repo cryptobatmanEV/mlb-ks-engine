@@ -7,8 +7,8 @@ __pycache__/
 data/raw/
 data/processed/
 
-# Generated daily outputs (committed by workflow after each run)
-# Excluded from manual dev work but tracked so CI can read yesterday's CSV
+# Intermediate prediction CSVs — within-job use only (fair_odds reads them
+# in the same run). Not committed; log_results reads data/outputs/ instead.
 data/predictions/
 
 # Trained models - ks_model.pkl is tracked (needed by the daily pipeline in CI)

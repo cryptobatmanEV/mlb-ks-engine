@@ -7,17 +7,14 @@ name: Daily Pipeline
 #
 #   1:00 AM ET  ( 6:00 UTC) — log results ONLY (no new predictions)
 #   9:00 AM ET  (14:00 UTC) — full pipeline (log yesterday's results, then
-#                              generate today's projections -- probable
-#                              pitchers are typically posted by now, and
-#                              daily_runner falls back to team-level stats
-#                              for any lineups not yet announced)
-#  11:00 AM ET  (16:00 UTC) — full pipeline (day game lineups)
+#                              generate today's projections)
+#  11:00 AM ET  (16:00 UTC) — full pipeline (day game lineups confirmed)
 #   3:00 PM ET  (20:00 UTC) — full pipeline (afternoon games)
 #   5:00 PM ET  (22:00 UTC) — full pipeline (evening games)
 
 on:
   schedule:
-    - cron: '0 6 * * *'    #  1:00 AM ET (6:00 UTC) — log results ONLY
+    - cron: '0 6 * * *'    #  1:00 AM ET (6:00 UTC)  — log results ONLY
     - cron: '0 14 * * *'   #  9:00 AM ET (14:00 UTC) — full pipeline
     - cron: '0 16 * * *'   # 11:00 AM ET (16:00 UTC) — full pipeline
     - cron: '0 20 * * *'   #  3:00 PM ET (20:00 UTC) — full pipeline
@@ -49,9 +46,44 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Log yesterday's actual K results into Neon.
-      # Reads yesterday's fair_odds CSV (committed by the previous pipeline run).
-      # Uses continue-on-error so a missing CSV on the very first run doesn't block predictions.
+      # ── Statcast store cache ───────────────────────────────────────────────
+      # The raw Statcast parquet (112 MB, gitignored) must persist between runs.
+      # Cache key is date-based: the first run each day saves a fresh entry;
+      # subsequent same-day runs restore from it. restore-keys lets any run
+      # fall back to the most recent prior-day entry if today's key is missing.
+      - name: Get today's date for cache key
+        id: cache-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Restore Statcast store cache
+        id: cache-statcast
+        uses: actions/cache@v4
+        with:
+          path: data/raw/statcast_pitching.parquet
+          key: statcast-store-v1-${{ steps.cache-date.outputs.date }}
+          restore-keys: |
+            statcast-store-v1-
+
+      # Cold start: only runs when no cached store exists at all (first-ever run
+      # or cache fully evicted). Pulls the complete pitch history 2021–today in
+      # monthly chunks (~20–30 min). All subsequent runs use the cache above and
+      # update incrementally in step 1a of the pipeline.
+      - name: Bootstrap Statcast store (cold start — skipped when cache hit)
+        if: steps.cache-statcast.outputs.cache-hit != 'true'
+        timeout-minutes: 90
+        run: |
+          mkdir -p data/raw
+          python -c "
+          from ingestion.fetch_statcast_pitching import backfill
+          from datetime import date
+          backfill(2021, date.today().year)
+          "
+
+      # ── Log yesterday's results ────────────────────────────────────────────
+      # Reads yesterday's fair_odds CSV (committed by the previous pipeline run)
+      # and writes actual K results to Neon. continue-on-error because a missing
+      # CSV is legitimate on genuine off-days or when a date was skipped —
+      # it must not block today's predictions from running.
       - name: Log yesterday's results
         continue-on-error: true
         env:
@@ -59,8 +91,9 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: python -m scripts.log_results
 
-      # Generate today's predictions and write to Neon (powers the web app).
-      # Skipped on the 1 AM run, which only logs the previous day's results.
+      # ── Generate today's predictions ───────────────────────────────────────
+      # Skipped on the 1 AM run (log-only). NO continue-on-error: if this step
+      # fails the whole job must show as a red X, not silently pass.
       - name: Generate today's predictions
         if: github.event.schedule != '0 6 * * *'
         env:
@@ -68,14 +101,26 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: python -m scripts.daily_pipeline
 
-      # Commit the new fair_odds CSV, predictions CSV, and any results_log
-      # updates back to the repo. This is what makes tomorrow's
-      # log_results step able to read today's CSV.
+      # ── Commit outputs ─────────────────────────────────────────────────────
+      # Commits the new fair_odds CSV and results log back to the repo so
+      # tomorrow's log_results step can find today's CSV. data/predictions/
+      # is gitignored (within-job use only) and is intentionally omitted.
       - name: Commit pipeline outputs
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/outputs/ data/predictions/ data/logs/ 2>/dev/null || true
+          git add data/outputs/ data/logs/
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Auto: pipeline $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
+
+      # ── Verify predictions are in the database ─────────────────────────────
+      # Runs last so commit already happened even if this check fails.
+      # Exits 1 (red X) if today's CSV exists but the DB has zero rows —
+      # meaning predictions were generated but never written to Neon.
+      # A zero-row CSV (genuine off-day) exits 0 (green) with a warning.
+      - name: Verify predictions in database
+        if: github.event.schedule != '0 6 * * *'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/verify_pipeline.py

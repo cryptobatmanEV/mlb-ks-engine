@@ -72,8 +72,8 @@ def run(date_str=None):
     from predict.daily_runner import run as runner_run
     preds, ok = _run_step(f"Step 2/4  Daily runner ({date_str})", runner_run, date_str)
     if not ok or preds is None or len(preds) == 0:
-        print("\nDaily runner produced no output. Stopping.")
-        return
+        print("\nFATAL: daily runner produced no output. Stopping.")
+        sys.exit(1)
 
     # Step 3: fair odds (non-fatal -- predictions are already saved)
     from predict.fair_odds import run as odds_run
