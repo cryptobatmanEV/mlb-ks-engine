@@ -54,9 +54,16 @@ jobs:
         run: |
           mkdir -p data/raw
           python -c "
-          from ingestion.fetch_statcast_pitching import backfill
+          import os
+          from ingestion.fetch_statcast_pitching import STORE_PATH, backfill
+          from ingestion.update_statcast_pitching import update as update_inc
           from datetime import date
-          backfill(2021, date.today().year)
+          if os.path.exists(STORE_PATH):
+              print('Partial store restored via restore-keys; catching up incrementally...')
+              update_inc()
+          else:
+              print('True cold start: downloading full history 2021-present...')
+              backfill(2021, date.today().year)
           "
 
       - name: Update Statcast pitching data

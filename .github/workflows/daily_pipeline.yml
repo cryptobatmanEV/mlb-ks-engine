@@ -64,19 +64,26 @@ jobs:
           restore-keys: |
             statcast-store-v1-
 
-      # Cold start: only runs when no cached store exists at all (first-ever run
-      # or cache fully evicted). Pulls the complete pitch history 2021–today in
-      # monthly chunks (~20–30 min). All subsequent runs use the cache above and
-      # update incrementally in step 1a of the pipeline.
+      # Cold start: runs when no exact-date cache exists.
+      # If restore-keys found a partial/older store, we just call update() to
+      # catch it up (fast: only pulls from last stored date → today).
+      # If truly no store exists, we do the full historical backfill (slow, ~30 min).
       - name: Bootstrap Statcast store (cold start — skipped when cache hit)
         if: steps.cache-statcast.outputs.cache-hit != 'true'
         timeout-minutes: 90
         run: |
           mkdir -p data/raw
           python -c "
-          from ingestion.fetch_statcast_pitching import backfill
+          import os
+          from ingestion.fetch_statcast_pitching import STORE_PATH, backfill
+          from ingestion.update_statcast_pitching import update as update_inc
           from datetime import date
-          backfill(2021, date.today().year)
+          if os.path.exists(STORE_PATH):
+              print('Partial store restored via restore-keys; catching up incrementally...')
+              update_inc()
+          else:
+              print('True cold start: downloading full history 2021-present...')
+              backfill(2021, date.today().year)
           "
 
       # ── Log yesterday's results ────────────────────────────────────────────
