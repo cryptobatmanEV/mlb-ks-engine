@@ -1,7 +1,16 @@
 """
-Pull sportsbook strikeout-prop lines (the-odds-api.com, market=pitcher_strikeouts)
-and PrizePicks pitcher-strikeout projections, match them to today's model
-projections (data/predictions/ks_predictions_{date}.csv), and compute edge.
+Pull sportsbook strikeout-prop lines and PrizePicks pitcher-strikeout
+projections, match them to today's model projections
+(data/predictions/ks_predictions_{date}.csv), and compute edge.
+
+Odds provider is controlled by the ODDS_PROVIDER env var:
+  odds_api   (default) -- the-odds-api.com, per-event fetching
+  parlay_api           -- parlay-api.com, single call for all books
+
+ROLLBACK: if ParlayAPI has issues, set ODDS_PROVIDER=odds_api (or remove the
+variable entirely) in .env and restart the pipeline. No code changes needed.
+To abandon the migration entirely, merge nothing and delete the
+parlayapi-migration branch: `git branch -D parlayapi-migration`.
 
 Market-informed projections: when a book line is available, the book's
 over/under prices are de-vigged and inverted (see market_implied_k) to back
@@ -45,6 +54,14 @@ load_dotenv()
 
 ODDS_KEY = os.getenv('ODDS_API_KEY') or os.getenv('ODDSPAPI_KEY')
 ODDS_BASE = 'https://api.the-odds-api.com'
+
+PARLAY_API_KEY = os.getenv('PARLAY_API_KEY')
+PARLAY_BASE = 'https://parlay-api.com/v1'
+
+# Controls which sportsbook odds provider is used. 'odds_api' is the default
+# and preserves the existing behaviour. Set to 'parlay_api' to use ParlayAPI.
+ODDS_PROVIDER = os.getenv('ODDS_PROVIDER', 'odds_api').lower().strip()
+
 PRED_DIR = 'data/predictions'
 OUT_DIR = 'data/outputs'
 
@@ -201,6 +218,147 @@ def _odds_get(path, params=None, timeout=20):
                      timeout=timeout)
     r.raise_for_status()
     return r, r.json()
+
+
+def _parlay_get(path, params=None, timeout=20):
+    r = requests.get(f'{PARLAY_BASE}{path}',
+                     params=params or {},
+                     headers={'X-API-Key': PARLAY_API_KEY},
+                     timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def _map_parlay_api_rows(raw_rows, date_str):
+    """Pivot ParlayAPI flat prop rows into the internal per-side row format.
+
+    ParlayAPI returns one row per player+book+line with both over_price and
+    under_price on the same record. This function splits each into two rows
+    (Over / Under), filters to a 36-hour window matching date_str, and
+    excludes DFS/prediction-market platforms (PrizePicks, Underdog, Sleeper,
+    Pick6, Kalshi, Polymarket) identified by is_dfs_flat_payout=True — their
+    flat +100/-100 pricing and alt lines (e.g. 0.5, 13.5) corrupt the
+    consensus line calculation meant for sportsbooks.
+
+    Output has the same shape as fetch_pitcher_strikeout_props():
+        player_name_raw, side, point, odds_american, bookmaker, event_id
+    """
+    # 36-hour window: game_date 00:00Z through next_day 09:00Z.
+    # Timestamps in ParlayAPI may be UTC ('Z') or include a UTC offset
+    # (e.g. '-04:00'). datetime.fromisoformat handles both in Python 3.11+;
+    # for earlier versions we normalize 'Z' → '+00:00' before parsing.
+    def _parse_ct(ts):
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+
+    from datetime import timezone
+    window_start = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
+    next_day = (datetime.fromisoformat(date_str) + timedelta(days=1)).strftime('%Y-%m-%d')
+    window_end = datetime.fromisoformat(f"{next_day}T09:00:00+00:00")
+
+    rows = []
+    for row in raw_rows:
+        # Skip DFS platforms — flat pricing and alt lines distort consensus
+        if row.get('is_dfs_flat_payout', False):
+            continue
+
+        ct = _parse_ct(row.get('commence_time', ''))
+        if ct is None or not (window_start <= ct < window_end):
+            continue
+
+        player = row.get('player', '')
+        line = row.get('line')
+        bookmaker = row.get('bookmaker', '')
+        event_id = row.get('canonical_event_id', '')
+
+        if not player or line is None:
+            continue
+
+        over_price = row.get('over_price')
+        under_price = row.get('under_price')
+
+        if over_price is not None:
+            rows.append({
+                'player_name_raw': player,
+                'side': 'Over',
+                'point': float(line),
+                'odds_american': int(over_price),
+                'bookmaker': bookmaker,
+                'event_id': event_id,
+            })
+        if under_price is not None:
+            rows.append({
+                'player_name_raw': player,
+                'side': 'Under',
+                'point': float(line),
+                'odds_american': int(under_price),
+                'bookmaker': bookmaker,
+                'event_id': event_id,
+            })
+    return rows
+
+
+def fetch_parlay_api_strikeouts(date_str):
+    """Fetch MLB pitcher strikeout props from ParlayAPI (3 credits, all books).
+
+    Single call to /v1/sports/baseball_mlb/props?market_key=player_strikeouts
+    returns props for every bookmaker at once, replacing the per-event loop
+    used by the OddsAPI flow. Rows are filtered to a 36-hour window for
+    date_str and pivoted to the same shape as fetch_pitcher_strikeout_props().
+
+    Name matching: ParlayAPI returns player as a plain "First Last" string,
+    same format our model uses, so norm_name() handles accents/suffixes the
+    same way as with OddsAPI outcome descriptions.
+    """
+    if not PARLAY_API_KEY:
+        print("  PARLAY_API_KEY not set -- skipping sportsbook lines.")
+        return pd.DataFrame()
+
+    try:
+        data = _parlay_get('/sports/baseball_mlb/props',
+                           {'market_key': 'player_strikeouts'})
+    except requests.HTTPError as e:
+        code = e.response.status_code
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        if code == 401:
+            print("  ParlayAPI auth failed (401). Check PARLAY_API_KEY in .env.")
+        elif code == 402:
+            print("  ParlayAPI credit limit reached (402).")
+        else:
+            print(f"  ParlayAPI props failed ({code}): {body.get('message', body)}")
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"  ParlayAPI error: {e}")
+        return pd.DataFrame()
+
+    # Response may be a bare list or wrapped: {"data": [...]} / {"results": [...]}
+    if isinstance(data, list):
+        raw_rows = data
+    elif isinstance(data, dict):
+        raw_rows = data.get('data') or data.get('results') or []
+    else:
+        print(f"  ParlayAPI returned unexpected type: {type(data)}")
+        return pd.DataFrame()
+
+    total_before = len(raw_rows)
+    rows = _map_parlay_api_rows(raw_rows, date_str)
+    if not rows:
+        print(f"  ParlayAPI returned {total_before} total rows; 0 matched "
+              f"date window for {date_str}.")
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df['name_norm'] = df['player_name_raw'].apply(norm_name)
+    df['implied'] = df['odds_american'].apply(american_to_implied)
+    return df
 
 
 # ── [1] Load predictions ───────────────────────────────────────────────────────
@@ -619,7 +777,7 @@ def run(date_str=None):
         date_str = date.today().isoformat()
 
     print(f"\n{'=' * 60}")
-    print(f"K PROP FAIR ODDS -- {date_str}")
+    print(f"K PROP FAIR ODDS -- {date_str}  [provider={ODDS_PROVIDER}]")
     print(f"{'=' * 60}")
 
     print("\n[1] Loading predictions...")
@@ -628,27 +786,44 @@ def run(date_str=None):
         print("  No predictions -- exiting.")
         return pd.DataFrame()
 
-    print("\n[2] Fetching OddsAPI events list...")
-    events, credits_remaining = fetch_events_list(date_str)
-
-    print("\n[3] Matching games to OddsAPI events...")
-    game_to_event = match_games_to_events(pred_df, events)
-    print(f"  Matched {len(game_to_event)} / {pred_df['game_pk'].nunique()} games to OddsAPI events")
-
     odds_df = pd.DataFrame()
-    if game_to_event:
-        print(f"\n[4] Fetching pitcher_strikeouts props for {len(game_to_event)} event(s)...")
-        odds_df, credits_used, failed, credits_remaining = \
-            fetch_pitcher_strikeout_props(list(set(game_to_event.values())))
+
+    if ODDS_PROVIDER == 'parlay_api':
+        # ── ParlayAPI path: single call returns all books for the whole sport ──
+        print("\n[2-4] Fetching ParlayAPI player_strikeouts props (single call)...")
+        odds_df = fetch_parlay_api_strikeouts(date_str)
         if not odds_df.empty:
             n_players = odds_df['name_norm'].nunique()
             n_books = odds_df['bookmaker'].nunique()
-            print(f"  {n_players} pitchers with lines | {n_books} bookmaker(s) | "
-                  f"{credits_used} credit(s) used | {credits_remaining} remaining")
+            print(f"  {n_players} pitchers with lines | {n_books} bookmaker(s)")
         else:
-            print(f"  No pitcher_strikeouts lines returned ({failed} failed event call(s)).")
+            print("  No pitcher_strikeouts lines returned from ParlayAPI.")
+
     else:
-        print("\n[4] No matched events -- skipping sportsbook props.")
+        # ── OddsAPI path: per-event fetching (original implementation) ─────────
+        print("\n[2] Fetching OddsAPI events list...")
+        events, credits_remaining = fetch_events_list(date_str)
+
+        print("\n[3] Matching games to OddsAPI events...")
+        game_to_event = match_games_to_events(pred_df, events)
+        print(f"  Matched {len(game_to_event)} / {pred_df['game_pk'].nunique()} games "
+              f"to OddsAPI events")
+
+        if game_to_event:
+            print(f"\n[4] Fetching pitcher_strikeouts props for "
+                  f"{len(game_to_event)} event(s)...")
+            odds_df, credits_used, failed, credits_remaining = \
+                fetch_pitcher_strikeout_props(list(set(game_to_event.values())))
+            if not odds_df.empty:
+                n_players = odds_df['name_norm'].nunique()
+                n_books = odds_df['bookmaker'].nunique()
+                print(f"  {n_players} pitchers with lines | {n_books} bookmaker(s) | "
+                      f"{credits_used} credit(s) used | {credits_remaining} remaining")
+            else:
+                print(f"  No pitcher_strikeouts lines returned "
+                      f"({failed} failed event call(s)).")
+        else:
+            print("\n[4] No matched events -- skipping sportsbook props.")
 
     print("\n[5] Fetching PrizePicks projections...")
     pp_df = fetch_prizepicks_strikeouts()
