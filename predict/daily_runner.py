@@ -222,7 +222,9 @@ def get_weather_for_date(date_str, home_teams):
     target = pd.Timestamp(date_str).normalize()
     home_teams = sorted(set(home_teams))
 
-    found = pd.DataFrame()
+    # Initialize with the home_team column so set(found['home_team']) is safe
+    # even when WEATHER_PATH doesn't exist (e.g. CI env where it's gitignored).
+    found = pd.DataFrame(columns=['home_team'])
     if os.path.exists(WEATHER_PATH):
         hist = pd.read_parquet(WEATHER_PATH)
         hist['game_date'] = pd.to_datetime(hist['game_date'])

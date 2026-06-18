@@ -35,6 +35,30 @@ jobs:
 
       # 1. Pull any newly completed Statcast pitching data and refresh
       #    this season's per-start pitcher game logs.
+      - name: Get today's date for cache key
+        id: cache-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Restore Statcast store cache
+        id: cache-statcast
+        uses: actions/cache@v4
+        with:
+          path: data/raw/statcast_pitching.parquet
+          key: statcast-store-v1-${{ steps.cache-date.outputs.date }}
+          restore-keys: |
+            statcast-store-v1-
+
+      - name: Bootstrap Statcast store (cold start — skipped when cache hit)
+        if: steps.cache-statcast.outputs.cache-hit != 'true'
+        timeout-minutes: 90
+        run: |
+          mkdir -p data/raw
+          python -c "
+          from ingestion.fetch_statcast_pitching import backfill
+          from datetime import date
+          backfill(2021, date.today().year)
+          "
+
       - name: Update Statcast pitching data
         run: python -m ingestion.update_statcast_pitching
 

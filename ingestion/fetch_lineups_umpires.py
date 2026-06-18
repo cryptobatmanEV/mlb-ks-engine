@@ -25,6 +25,7 @@ import pandas as pd
 import requests
 
 STATCAST = 'data/raw/statcast_pitching.parquet'
+GAME_LOGS = 'data/raw/pitcher_game_logs.parquet'
 LINEUPS_PATH = 'data/raw/lineups.parquet'
 OFFICIALS_PATH = 'data/raw/officials.parquet'
 
@@ -99,8 +100,19 @@ def append_and_dedupe(path, new_df, dedupe_cols):
 
 
 def get_target_dates(update_only=False):
-    statcast = pd.read_parquet(STATCAST, columns=['game_date'])
-    all_dates = sorted(pd.to_datetime(statcast['game_date']).dt.strftime('%Y-%m-%d').unique())
+    if os.path.exists(STATCAST):
+        src = pd.read_parquet(STATCAST, columns=['game_date'])
+    elif os.path.exists(GAME_LOGS):
+        # Statcast store not yet built (e.g. first run in CI); fall back to
+        # pitcher game logs which are built by an earlier weekly-retrain step.
+        print(f"  Note: {STATCAST} not found; deriving dates from {GAME_LOGS}")
+        src = pd.read_parquet(GAME_LOGS, columns=['game_date'])
+    else:
+        raise FileNotFoundError(
+            f"Neither {STATCAST} nor {GAME_LOGS} found. "
+            "Run ingestion/fetch_statcast_pitching.py to build the Statcast store first."
+        )
+    all_dates = sorted(pd.to_datetime(src['game_date']).dt.strftime('%Y-%m-%d').unique())
 
     if update_only and os.path.exists(OFFICIALS_PATH):
         existing = pd.read_parquet(OFFICIALS_PATH, columns=['game_date'])
