@@ -204,7 +204,16 @@ function fmtGameTime(iso: string | null): string {
   }
 }
 
-function DetailCard({ row, showMarket }: { row: Row; showMarket?: boolean }) {
+type MyLineProps = {
+  raw: string;
+  num: number | null;
+  edge: number | null;
+  side: string | null;
+  onChange: (val: string) => void;
+};
+
+function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolean; myLine?: MyLineProps }) {
+  const myEdgeDisp = myLine ? edgeDisplay(myLine.edge, myLine.num != null) : null;
   const SECTION_LABEL: React.CSSProperties = {
     fontFamily:    'var(--font-mono)',
     fontSize:      '9px',
@@ -241,12 +250,26 @@ function DetailCard({ row, showMarket }: { row: Row; showMarket?: boolean }) {
     }}>
       <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
 
-        {/* Market (mobile only -- desktop already shows these as columns) */}
+        {/* Model & market (mobile only -- desktop shows these as table columns) */}
         {showMarket && (
           <>
             <div>
-              <div style={SECTION_LABEL}>MARKET</div>
+              <div style={SECTION_LABEL}>MODEL &amp; MARKET</div>
               <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                {/* Projections */}
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>PROJ Ks</div>
+                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+                    {row.pred_k.toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>ADJ Ks</div>
+                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+                    {(row.adj_k ?? row.pred_k).toFixed(2)}
+                  </div>
+                </div>
+                {/* Book */}
                 <div style={{ minWidth: '60px' }}>
                   <div style={STAT_LABEL}>BOOK O/U</div>
                   <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
@@ -257,11 +280,10 @@ function DetailCard({ row, showMarket }: { row: Row; showMarket?: boolean }) {
                   <div style={STAT_LABEL}>BOOK EDGE</div>
                   {(() => {
                     const d = edgeDisplay(row.edge_book, row.has_line);
-                    return (
-                      <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>
-                    );
+                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
                   })()}
                 </div>
+                {/* PrizePicks */}
                 <div style={{ minWidth: '60px' }}>
                   <div style={STAT_LABEL}>PP LINE</div>
                   <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
@@ -272,11 +294,46 @@ function DetailCard({ row, showMarket }: { row: Row; showMarket?: boolean }) {
                   <div style={STAT_LABEL}>PP EDGE</div>
                   {(() => {
                     const d = edgeDisplay(row.edge_pp, row.pp_line != null);
-                    return (
-                      <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>
-                    );
+                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
                   })()}
                 </div>
+                {/* Custom line */}
+                {myLine && (
+                  <>
+                    <div style={{ minWidth: '72px' }}>
+                      <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY LINE</div>
+                      <input
+                        type="text"
+                        placeholder="K LINE"
+                        value={myLine.raw}
+                        onChange={e => myLine.onChange(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          width:        '64px',
+                          background:   'rgba(255,255,255,0.04)',
+                          border:       `1px solid ${myLine.num != null ? 'rgba(255,200,0,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                          borderRadius: '2px',
+                          color:        myLine.num != null ? 'var(--ev-gold)' : 'rgba(255,255,255,0.25)',
+                          fontFamily:   'var(--font-mono)',
+                          fontSize:     '13px',
+                          fontWeight:   500,
+                          padding:      '3px 7px',
+                          textAlign:    'right',
+                          outline:      'none',
+                          marginTop:    '2px',
+                        }}
+                      />
+                    </div>
+                    <div style={{ minWidth: '60px' }}>
+                      <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY EDGE</div>
+                      <div style={{ ...STAT_VAL, color: myEdgeDisp!.color, fontWeight: myEdgeDisp!.weight }}>
+                        {myLine.num != null && myLine.side && myEdgeDisp!.text !== '—'
+                          ? `${myLine.side === 'under' ? 'U' : 'O'} ${myEdgeDisp!.text}`
+                          : myEdgeDisp!.text}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1460,6 +1517,13 @@ export default function KsTable({ rows }: { rows: Row[] }) {
           const playLine = row.has_line ? row.book_line : row.pp_line;
           const playSide = row.has_line ? row.book_side : row.pp_side;
 
+          const mRawInput   = customLines[id] ?? '';
+          const mCustomNum  = parseLineInput(mRawInput);
+          const mProbOver   = mCustomNum != null ? probOver(mCustomNum, row.adj_k ?? row.pred_k) : null;
+          const mSide       = mProbOver != null ? (mProbOver >= 0.5 ? 'over' : 'under') : null;
+          const mProb       = mProbOver != null ? (mSide === 'over' ? mProbOver : 1 - mProbOver) : null;
+          const mEdge       = mProb != null ? mProb - 0.5 : null;
+
           return (
             <div key={`m-${id}`} className="ks-mobile-card" onClick={() => toggleExpand(id)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '6px' }}>
@@ -1538,7 +1602,17 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
               {isExpanded && (
                 <div style={{ overflowX: 'auto', margin: '10px -14px -12px' }}>
-                  <DetailCard row={row} showMarket />
+                  <DetailCard
+                    row={row}
+                    showMarket
+                    myLine={{
+                      raw:      mRawInput,
+                      num:      mCustomNum,
+                      edge:     mEdge,
+                      side:     mSide,
+                      onChange: val => setCustomLines(prev => ({ ...prev, [id]: val })),
+                    }}
+                  />
                 </div>
               )}
             </div>
