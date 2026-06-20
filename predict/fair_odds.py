@@ -277,6 +277,12 @@ def _map_parlay_api_rows(raw_rows, date_str):
 
         if not player or line is None:
             continue
+        try:
+            line_val = float(line)
+        except (TypeError, ValueError):
+            continue
+        if line_val < 3.5 or line_val > 12.5:
+            continue  # drop alt lines (2.5, 17.5) and game-total / hitter props
 
         over_price = row.get('over_price')
         under_price = row.get('under_price')
@@ -521,10 +527,17 @@ def join_sportsbook_odds(pred_df, odds_df):
 
     overs = odds_df[odds_df['side'] == 'Over']
 
-    # Consensus line per player = most frequently quoted Over point
-    consensus = (overs.groupby(['name_norm', 'point']).size()
-                  .reset_index(name='n')
-                  .sort_values(['name_norm', 'n'], ascending=[True, False])
+    # Consensus line: most frequently quoted Over point.
+    # Tie-break: when multiple lines tie on count (e.g. a single book posting
+    # several alt lines each at n=1), pick the line whose mean over_implied is
+    # closest to 0.5 — the primary market line is priced near even-money, while
+    # low alt lines (~2.5) are ~80% over and high alt lines (~17.5) are ~5% over.
+    _freq = overs.groupby(['name_norm', 'point']).size().reset_index(name='n')
+    _impl = (overs.groupby(['name_norm', 'point'])['implied']
+             .mean().reset_index(name='over_implied_mean'))
+    _freq = _freq.merge(_impl, on=['name_norm', 'point'])
+    _freq['balance'] = (_freq['over_implied_mean'] - 0.5).abs()
+    consensus = (_freq.sort_values(['name_norm', 'n', 'balance'], ascending=[True, False, True])
                   .groupby('name_norm').first()
                   .reset_index()[['name_norm', 'point']]
                   .rename(columns={'point': 'book_line'}))
