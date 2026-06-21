@@ -104,8 +104,10 @@ jobs:
       - name: Generate today's predictions
         if: github.event.schedule != '0 6 * * *'
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          DATABASE_URL:    ${{ secrets.DATABASE_URL }}
+          ODDS_API_KEY:    ${{ secrets.ODDS_API_KEY }}
+          PARLAY_API_KEY:  ${{ secrets.PARLAY_API_KEY }}
+          ODDS_PROVIDER:   parlay_api
         run: python -m scripts.daily_pipeline
 
       # ── Commit outputs ─────────────────────────────────────────────────────
