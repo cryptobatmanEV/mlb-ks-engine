@@ -850,6 +850,50 @@ def run(date_str=None):
     result = join_prizepicks(result, pp_df)
 
     print_edge_sanity_check(result)
+
+    # Preserve book/PP odds for pitchers whose market has closed (game
+    # started; sportsbooks and PP suspend props). Without this, afternoon
+    # pipeline runs overwrite the morning's has_line=1 with has_line=0 in the
+    # CSV, causing log_results to miss bet outcomes the next morning.
+    _prev_path = os.path.join(OUT_DIR, f'ks_fair_odds_{date_str}.csv')
+    if os.path.exists(_prev_path):
+        try:
+            _prev = pd.read_csv(_prev_path)
+            _BOOK_COLS = ['has_line', 'book_line', 'book_side', 'best_book',
+                          'best_odds', 'book_implied', 'model_prob_book_line',
+                          'edge_book', 'adj_k']
+            _PP_COLS   = ['pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp']
+            _n_frozen  = 0
+
+            _pb = _prev.loc[_prev['has_line'] == 1,
+                            ['pitcher'] + [c for c in _BOOK_COLS if c in _prev.columns]]
+            if not _pb.empty:
+                result = result.merge(_pb, on='pitcher', how='left', suffixes=('', '_z'))
+                if 'has_line_z' in result.columns:
+                    _bm = (result['has_line'] == 0) & (result['has_line_z'] == 1)
+                    _n_frozen += int(_bm.sum())
+                    for _c in _BOOK_COLS:
+                        if f'{_c}_z' in result.columns:
+                            result.loc[_bm, _c] = result.loc[_bm, f'{_c}_z']
+                result = result[[c for c in result.columns if not c.endswith('_z')]]
+
+            _pp = _prev.loc[_prev['pp_line'].notna(),
+                            ['pitcher'] + [c for c in _PP_COLS if c in _prev.columns]]
+            if not _pp.empty:
+                result = result.merge(_pp, on='pitcher', how='left', suffixes=('', '_z'))
+                if 'pp_line_z' in result.columns:
+                    _pm = result['pp_line'].isna() & result['pp_line_z'].notna()
+                    _n_frozen += int(_pm.sum())
+                    for _c in _PP_COLS:
+                        if f'{_c}_z' in result.columns:
+                            result.loc[_pm, _c] = result.loc[_pm, f'{_c}_z']
+                result = result[[c for c in result.columns if not c.endswith('_z')]]
+
+            if _n_frozen:
+                print(f"\n  Preserved prior-run odds for {_n_frozen} pitcher(s) (market closed).")
+        except Exception as e:
+            print(f"  Warning: could not preserve prior odds: {e}")
+
     save_output(result, date_str)
 
     return result
