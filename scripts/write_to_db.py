@@ -14,6 +14,7 @@ Usage:
 Called automatically as Step 4 by scripts/daily_pipeline.py.
 """
 
+import json
 import math
 import os
 import sys
@@ -296,6 +297,21 @@ def run(date_str=None):
                 cur.execute(CREATE_TABLE)
                 for stmt in ALTER_STATEMENTS:
                     cur.execute(stmt)
+
+                # Remove any rows for postponed/cancelled/suspended games so they
+                # don't appear on the card. The list is written by daily_runner.
+                _postponed_path = os.path.join(OUTPUTS_DIR, f'ks_postponed_{date_str}.json')
+                if os.path.exists(_postponed_path):
+                    with open(_postponed_path) as _f:
+                        _postponed_pks = json.load(_f)
+                    if _postponed_pks:
+                        cur.execute(
+                            "DELETE FROM ks_predictions "
+                            "WHERE game_date = %s AND game_pk = ANY(%s::bigint[])",
+                            (date_str, _postponed_pks),
+                        )
+                        print(f"  Deleted rows for {len(_postponed_pks)} postponed game(s).")
+
                 for _, row in df.iterrows():
                     cur.execute(UPSERT, {
                         'game_date': date_str,

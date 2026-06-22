@@ -849,6 +849,27 @@ def run(date_str=None):
     result = join_sportsbook_odds(pred_df, odds_df)
     result = join_prizepicks(result, pp_df)
 
+    # Identify games where SOME pitchers have sportsbook lines but others don't.
+    # Those unpriced pitchers are NOT frozen by the freeze step below (which only
+    # protects has_line=1 → 0 drops after a game starts). On every subsequent
+    # pipeline run the ParlayAPI bulk call re-attempts ALL pitchers, so
+    # partial-priced games are automatically retried without any extra mechanism.
+    _gb = result.groupby('game_pk')
+    _game_counts = _gb['has_line'].agg(['sum', 'count']).rename(
+        columns={'sum': 'n_priced', 'count': 'n_total'})
+    _game_counts['status'] = _gb['status'].first() if 'status' in result.columns else ''
+    _partial = _game_counts[
+        (_game_counts['n_priced'] > 0) & (_game_counts['n_priced'] < _game_counts['n_total'])
+    ]
+    if not _partial.empty:
+        print("\n  Partial-pricing games (missing pitchers auto-retried on next run):")
+        for _gk, _g in _partial.iterrows():
+            _missing = result.loc[
+                (result['game_pk'] == _gk) & (result['has_line'] == 0), 'pitcher_name'
+            ].tolist()
+            print(f"    game_pk={int(_gk)}  status={_g['status']}  "
+                  f"missing: {', '.join(_missing)}")
+
     print_edge_sanity_check(result)
 
     # Preserve book/PP odds for pitchers whose market has closed (game

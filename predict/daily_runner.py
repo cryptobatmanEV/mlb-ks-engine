@@ -51,6 +51,10 @@ OUT_DIR = 'data/predictions'
 
 LINES = [4.5, 5.5, 6.5, 7.5, 8.5]
 
+# Games in these states are excluded from predictions and their existing DB rows
+# are deleted by write_to_db so they don't appear on the card as broken data.
+SKIP_STATUSES = frozenset({'postponed', 'cancelled', 'canceled', 'suspended'})
+
 # MLB Stats API team abbreviations -> our internal (Statcast-derived) abbreviations
 TEAM_ALIAS = {'ARI': 'AZ', 'OAK': 'ATH'}
 
@@ -78,13 +82,18 @@ def format_game_time_et(iso_str):
 
 
 def fetch_schedule(date_str):
-    """Return (DataFrame of probable starting pitchers, dict of per-game extras).
+    """Return (DataFrame of probable starting pitchers, dict of per-game extras,
+    list of postponed/cancelled/suspended game_pks).
 
     The extras dict maps game_pk -> {'home_lineup': [batter_id, ...9],
     'away_lineup': [batter_id, ...9], 'hp_umpire_id': int or None}, pulled
     from the same schedule call via hydrate=lineups,officials. Lineups are
     often not posted yet for the early pipeline run, in which case the lists
     are empty.
+
+    Postponed/cancelled/suspended games are excluded from the DataFrame and
+    their game_pks are returned separately so write_to_db can DELETE any
+    existing rows for those games (preventing them from showing on the card).
     """
     print(f"Fetching schedule for {date_str}...")
     data = _mlb('schedule', {
@@ -96,6 +105,7 @@ def fetch_schedule(date_str):
 
     rows = []
     game_extra = {}
+    postponed_pks = []
     for d in data.get('dates', []):
         for g in d.get('games', []):
             game_pk = g['gamePk']
@@ -103,6 +113,11 @@ def fetch_schedule(date_str):
             day_night = g.get('dayNight', 'day')
             venue = g.get('venue', {}).get('name', '')
             status = g.get('status', {}).get('detailedState', '')
+
+            if status.lower() in SKIP_STATUSES:
+                postponed_pks.append(game_pk)
+                print(f"  Skipping {status} game {game_pk}")
+                continue
 
             home = g['teams']['home']
             away = g['teams']['away']
@@ -145,7 +160,9 @@ def fetch_schedule(date_str):
                 })
 
     print(f"  {len(rows)} probable starting pitchers found")
-    return pd.DataFrame(rows), game_extra
+    if postponed_pks:
+        print(f"  {len(postponed_pks)} postponed/cancelled game(s) excluded")
+    return pd.DataFrame(rows), game_extra, postponed_pks
 
 
 def fetch_batter_season_k_pct(batter_id, season):
@@ -351,7 +368,17 @@ def run(date_str=None):
           f"(bias_correction={bundle['bias_correction']:+.4f}, "
           f"{len(bundle['features'])} features)")
 
-    sched, game_extra = fetch_schedule(date_str)
+    sched, game_extra, postponed_pks = fetch_schedule(date_str)
+
+    if postponed_pks:
+        import json
+        _pp_dir = 'data/outputs'
+        os.makedirs(_pp_dir, exist_ok=True)
+        _pp_path = os.path.join(_pp_dir, f'ks_postponed_{date_str}.json')
+        with open(_pp_path, 'w') as _f:
+            json.dump(list({int(p) for p in postponed_pks}), _f)
+        print(f"  Wrote {len(postponed_pks)} postponed game_pk(s) to {_pp_path}")
+
     if sched.empty:
         print("\nNo probable pitchers found for this date. Nothing to do.")
         return pd.DataFrame()
