@@ -765,6 +765,7 @@ def save_output(df, date_str):
         'has_line', 'book_line', 'book_side', 'best_book', 'best_odds', 'book_implied',
         'model_prob_book_line', 'edge_book',
         'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',
+        'is_frozen',
         # Detail-card / context columns (passed through from daily_runner output)
         'rest_days', 'prev_pitches', 'n_prior_starts',
         'opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games',
@@ -876,6 +877,10 @@ def run(date_str=None):
     # started; sportsbooks and PP suspend props). Without this, afternoon
     # pipeline runs overwrite the morning's has_line=1 with has_line=0 in the
     # CSV, causing log_results to miss bet outcomes the next morning.
+    # is_frozen=1 tells write_to_db to skip overwriting existing DB odds —
+    # preventing stale frozen values from regressing a fresher DB write.
+    result['is_frozen'] = 0
+
     _prev_path = os.path.join(OUT_DIR, f'ks_fair_odds_{date_str}.csv')
     if os.path.exists(_prev_path):
         try:
@@ -896,6 +901,7 @@ def run(date_str=None):
                     for _c in _BOOK_COLS:
                         if f'{_c}_z' in result.columns:
                             result.loc[_bm, _c] = result.loc[_bm, f'{_c}_z']
+                    result.loc[_bm, 'is_frozen'] = 1
                 result = result[[c for c in result.columns if not c.endswith('_z')]]
 
             _pp = _prev.loc[_prev['pp_line'].notna(),
@@ -908,6 +914,7 @@ def run(date_str=None):
                     for _c in _PP_COLS:
                         if f'{_c}_z' in result.columns:
                             result.loc[_pm, _c] = result.loc[_pm, f'{_c}_z']
+                    result.loc[_pm, 'is_frozen'] = 1
                 result = result[[c for c in result.columns if not c.endswith('_z')]]
 
             if _n_frozen:
