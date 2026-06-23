@@ -80,8 +80,10 @@ def build():
         print(f"  Added columns: {new_cols_weather}")
         print(f"  Match rate: {df['temp_f'].notna().mean():.2%}")
     else:
-        print(f"  {WEATHER} not found — skipping weather merge (columns will be null)")
-        new_cols_weather = []
+        print(f"  {WEATHER} not found — adding null weather columns")
+        for col in ['temp_f', 'wind_speed', 'wind_favor', 'is_dome']:
+            df[col] = float('nan')
+        new_cols_weather = ['temp_f', 'wind_speed', 'wind_favor', 'is_dome']
 
     df['target_k'] = df['k']
 
