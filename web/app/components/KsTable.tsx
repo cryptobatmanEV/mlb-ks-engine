@@ -71,6 +71,7 @@ export type Row = {
   p_other_pct_10: number | null;
   p_avg_pitches_10: number | null;
   p_avg_ip_10: number | null;
+  book_markets: string | null;
 };
 
 type SortKey =
@@ -451,6 +452,57 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
             </div>
           </div>
         </div>
+
+        {DIVIDER}
+
+        {/* Market odds per book */}
+        {row.has_line && row.book_markets != null && (() => {
+          let markets: Record<string, { over: number | null; under: number | null } | null> = {};
+          try { markets = JSON.parse(row.book_markets); } catch { return null; }
+          const BOOKS: { key: string; label: string }[] = [
+            { key: 'pinnacle',   label: 'Pinnacle'   },
+            { key: 'fanduel',    label: 'FanDuel'    },
+            { key: 'novig',      label: 'Novig'      },
+            { key: 'prophetx',   label: 'ProphetX'   },
+            { key: 'draftkings', label: 'DraftKings' },
+            { key: 'circa',      label: 'Circa'      },
+          ];
+          const hasAny = BOOKS.some(b => markets[b.key] != null);
+          if (!hasAny) return null;
+          const favSide = row.book_side ?? 'over';
+          return (
+            <div>
+              <div style={SECTION_LABEL}>MARKET ODDS — {favSide === 'under' ? 'U' : 'O'} {row.book_line}</div>
+              <table style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', color: 'var(--ev-dim)', padding: '0 16px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
+                    <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 12px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>OVER</th>
+                    <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 0 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>UNDER</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BOOKS.map(({ key, label }) => {
+                    const data = markets[key];
+                    const overColor = data?.over != null && favSide === 'over' ? 'var(--ev-green)' : 'var(--ev-text)';
+                    const underColor = data?.under != null && favSide === 'under' ? 'var(--ev-green)' : 'var(--ev-text)';
+                    return (
+                      <tr key={key}>
+                        <td style={{ color: 'var(--ev-muted)', padding: '2px 16px 2px 0' }}>{label}</td>
+                        <td style={{ textAlign: 'right', padding: '2px 12px 2px 0', color: data?.over != null ? overColor : 'var(--ev-dim)' }}>
+                          {data?.over != null ? fmtOdds(data.over) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', color: data?.under != null ? underColor : 'var(--ev-dim)' }}>
+                          {data?.under != null ? fmtOdds(data.under) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
 
         {DIVIDER}
 

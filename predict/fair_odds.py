@@ -37,6 +37,7 @@ Usage:
 Output: data/outputs/ks_fair_odds_YYYY-MM-DD.csv
 """
 
+import json
 import os
 import re
 import sys
@@ -57,6 +58,8 @@ ODDS_BASE = 'https://api.the-odds-api.com'
 
 PARLAY_API_KEY = os.getenv('PARLAY_API_KEY')
 PARLAY_BASE = 'https://parlay-api.com/v1'
+
+MARKET_BOOKS = ['pinnacle', 'fanduel', 'novig', 'prophetx', 'draftkings', 'circa']
 
 # Controls which sportsbook odds provider is used. 'odds_api' is the default
 # and preserves the existing behaviour. Set to 'parlay_api' to use ParlayAPI.
@@ -523,6 +526,7 @@ def join_sportsbook_odds(pred_df, odds_df):
         df['model_prob_book_line'] = None
         df['edge_book'] = None
         df['adj_k'] = df['pred_k']
+        df['book_markets'] = None
         return df.drop(columns=['name_norm'])
 
     overs = odds_df[odds_df['side'] == 'Over']
@@ -542,6 +546,25 @@ def join_sportsbook_odds(pred_df, odds_df):
                   .reset_index()[['name_norm', 'point']]
                   .rename(columns={'point': 'book_line'}))
 
+    # Per-book odds at consensus line for market data section in UI
+    _bm_lookup = {}
+    for _, _c in consensus.iterrows():
+        _nm, _line = _c['name_norm'], _c['book_line']
+        _at = odds_df[(odds_df['name_norm'] == _nm) & (odds_df['point'] == _line)]
+        _entry = {}
+        for _book in MARKET_BOOKS:
+            _bk = _at[_at['bookmaker'].str.lower() == _book]
+            if _bk.empty:
+                _entry[_book] = None
+            else:
+                _ov = _bk[_bk['side'] == 'Over']
+                _un = _bk[_bk['side'] == 'Under']
+                _entry[_book] = {
+                    'over': int(_ov['odds_american'].iloc[0]) if not _ov.empty else None,
+                    'under': int(_un['odds_american'].iloc[0]) if not _un.empty else None,
+                }
+        _bm_lookup[_nm] = json.dumps(_entry)
+
     def best_side(side_name):
         """Best (highest) price for one side at each pitcher's consensus line."""
         prefix = side_name.lower()
@@ -557,7 +580,9 @@ def join_sportsbook_odds(pred_df, odds_df):
 
     df = df.merge(consensus, on='name_norm', how='left')
     df = df.merge(best_side('Over'), on='name_norm', how='left')
-    df = df.merge(best_side('Under'), on='name_norm', how='left').drop(columns=['name_norm'])
+    df = df.merge(best_side('Under'), on='name_norm', how='left')
+    df['book_markets'] = df['name_norm'].map(_bm_lookup)
+    df = df.drop(columns=['name_norm'])
 
     # ── Blend the model's projection with the market-implied projection ────
     # ADJ Ks = MODEL_WEIGHT * PROJ Ks + (1 - MODEL_WEIGHT) * market-implied Ks.
@@ -766,6 +791,7 @@ def save_output(df, date_str):
         'model_prob_book_line', 'edge_book',
         'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',
         'is_frozen',
+        'book_markets',
         # Detail-card / context columns (passed through from daily_runner output)
         'rest_days', 'prev_pitches', 'n_prior_starts',
         'opp_k_pct_15', 'opp_ops_15', 'opp_chase_pct_15', 'n_prior_team_games',
@@ -887,7 +913,7 @@ def run(date_str=None):
             _prev = pd.read_csv(_prev_path)
             _BOOK_COLS = ['has_line', 'book_line', 'book_side', 'best_book',
                           'best_odds', 'book_implied', 'model_prob_book_line',
-                          'edge_book', 'adj_k']
+                          'edge_book', 'adj_k', 'book_markets']
             _PP_COLS   = ['pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp']
             _n_frozen  = 0
 
