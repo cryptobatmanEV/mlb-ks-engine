@@ -173,7 +173,10 @@ def fetch_batter_season_k_pct(batter_id, season):
     except requests.RequestException:
         return np.nan
 
-    splits = data.get('stats', [{}])[0].get('splits', [])
+    stats = data.get('stats', [])
+    if not stats:
+        return np.nan
+    splits = stats[0].get('splits', [])
     if not splits:
         return np.nan
 

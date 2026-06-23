@@ -72,12 +72,16 @@ def build():
     print(f"  Match rate: {df['park_k_factor'].notna().mean():.2%}")
 
     print("\nMerging weather (on game_date + home_team)...")
-    weather = pd.read_parquet(WEATHER)
-    before_cols = set(df.columns)
-    df = df.merge(weather, on=['game_date', 'home_team'], how='left')
-    new_cols_weather = [c for c in df.columns if c not in before_cols]
-    print(f"  Added columns: {new_cols_weather}")
-    print(f"  Match rate: {df['temp_f'].notna().mean():.2%}")
+    if os.path.exists(WEATHER):
+        weather = pd.read_parquet(WEATHER)
+        before_cols = set(df.columns)
+        df = df.merge(weather, on=['game_date', 'home_team'], how='left')
+        new_cols_weather = [c for c in df.columns if c not in before_cols]
+        print(f"  Added columns: {new_cols_weather}")
+        print(f"  Match rate: {df['temp_f'].notna().mean():.2%}")
+    else:
+        print(f"  {WEATHER} not found — skipping weather merge (columns will be null)")
+        new_cols_weather = []
 
     df['target_k'] = df['k']
 

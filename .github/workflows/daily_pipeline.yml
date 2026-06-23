@@ -5,20 +5,20 @@ name: Daily Pipeline
 # coast night games whose lineups aren't posted until much later), plus an
 # early-morning run that only logs the previous day's results.
 #
-#   1:00 AM ET  ( 6:00 UTC) — log results ONLY (no new predictions)
-#   9:00 AM ET  (14:00 UTC) — full pipeline (log yesterday's results, then
+#   6:00 AM ET  (10:00 UTC) — log results ONLY (no new predictions)
+#   8:00 AM ET  (12:00 UTC) — full pipeline (log yesterday's results, then
 #                              generate today's projections)
-#  11:00 AM ET  (16:00 UTC) — full pipeline (day game lineups confirmed)
-#   3:00 PM ET  (20:00 UTC) — full pipeline (afternoon games)
-#   5:00 PM ET  (22:00 UTC) — full pipeline (evening games)
+#  11:00 AM ET  (15:00 UTC) — full pipeline (day game lineups confirmed)
+#   2:00 PM ET  (18:00 UTC) — full pipeline (afternoon games)
+#   5:00 PM ET  (21:00 UTC) — full pipeline (evening games)
 
 on:
   schedule:
-    - cron: '0 6 * * *'    #  1:00 AM ET (6:00 UTC)  — log results ONLY
-    - cron: '0 14 * * *'   #  9:00 AM ET (14:00 UTC) — full pipeline
-    - cron: '0 16 * * *'   # 11:00 AM ET (16:00 UTC) — full pipeline
-    - cron: '0 20 * * *'   #  3:00 PM ET (20:00 UTC) — full pipeline
-    - cron: '0 22 * * *'   #  5:00 PM ET (22:00 UTC) — full pipeline
+    - cron: '0 10 * * *'   #  6:00 AM ET (10:00 UTC) — log results ONLY
+    - cron: '0 12 * * *'   #  8:00 AM ET (12:00 UTC) — full pipeline
+    - cron: '0 15 * * *'   # 11:00 AM ET (15:00 UTC) — full pipeline
+    - cron: '0 18 * * *'   #  2:00 PM ET (18:00 UTC) — full pipeline
+    - cron: '0 21 * * *'   #  5:00 PM ET (21:00 UTC) — full pipeline
   workflow_dispatch:         # manual trigger from the Actions tab (runs full pipeline)
 
 permissions:
@@ -99,10 +99,10 @@ jobs:
         run: python -m scripts.log_results
 
       # ── Generate today's predictions ───────────────────────────────────────
-      # Skipped on the 1 AM run (log-only). NO continue-on-error: if this step
+      # Skipped on the 6 AM run (log-only). NO continue-on-error: if this step
       # fails the whole job must show as a red X, not silently pass.
       - name: Generate today's predictions
-        if: github.event.schedule != '0 6 * * *'
+        if: github.event.schedule != '0 10 * * *'
         env:
           DATABASE_URL:    ${{ secrets.DATABASE_URL }}
           ODDS_API_KEY:    ${{ secrets.ODDS_API_KEY }}
@@ -129,7 +129,7 @@ jobs:
       # meaning predictions were generated but never written to Neon.
       # A zero-row CSV (genuine off-day) exits 0 (green) with a warning.
       - name: Verify predictions in database
-        if: github.event.schedule != '0 6 * * *'
+        if: github.event.schedule != '0 10 * * *'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python scripts/verify_pipeline.py
