@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Nav from '../components/Nav';
 import type { AiPickRow } from '../api/ai-picks-data/route';
 
@@ -23,6 +23,11 @@ function fmtNum(v: number | null, decimals = 2): string {
 
 function fmtPL(pl: number): string {
   return `${pl >= 0 ? '+' : ''}${pl.toFixed(2)}u`;
+}
+
+function fmtROI(roi: number): string {
+  const pct = roi * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
 function calcPL(result: string | null, odds: number | null): number {
@@ -104,10 +109,20 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
+type DaySummary = {
+  date:    string;
+  total:   number;
+  wins:    number;
+  losses:  number;
+  pushes:  number;
+  pl:      number;
+  decided: number;
+};
+
 export default function PicksPage() {
-  const [rows, setRows] = useState<AiPickRow[]>([]);
+  const [rows, setRows]     = useState<AiPickRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]   = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/ai-picks-data')
@@ -120,15 +135,34 @@ export default function PicksPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Summary stats — only settled picks
-  const settled = rows.filter(r => r.result != null);
-  const wins    = settled.filter(r => r.result === 'win').length;
-  const losses  = settled.filter(r => r.result === 'loss').length;
-  const pushes  = settled.filter(r => r.result === 'push').length;
-  const decided = wins + losses;
-  const winRate = decided > 0 ? `${(wins / decided * 100).toFixed(1)}%` : '—';
-  const totalPL = settled.reduce((acc, r) => acc + calcPL(r.result, r.best_odds), 0);
-  const plColor = totalPL > 0 ? 'var(--ev-green)' : totalPL < 0 ? 'var(--ev-red)' : 'var(--ev-muted)';
+  // Overall summary — only settled picks count toward record / P/L / ROI
+  const settled  = useMemo(() => rows.filter(r => r.result != null), [rows]);
+  const wins     = useMemo(() => settled.filter(r => r.result === 'win').length,  [settled]);
+  const losses   = useMemo(() => settled.filter(r => r.result === 'loss').length, [settled]);
+  const pushes   = useMemo(() => settled.filter(r => r.result === 'push').length, [settled]);
+  const decided  = wins + losses;
+  const winRate  = decided > 0 ? `${(wins / decided * 100).toFixed(1)}%` : '—';
+  const totalPL  = useMemo(() => settled.reduce((acc, r) => acc + calcPL(r.result, r.best_odds), 0), [settled]);
+  const roi      = decided > 0 ? totalPL / decided : null;
+  const plColor  = totalPL > 0 ? 'var(--ev-green)' : totalPL < 0 ? 'var(--ev-red)' : 'var(--ev-muted)';
+  const roiColor = roi != null && roi > 0 ? 'var(--ev-green)' : roi != null && roi < 0 ? 'var(--ev-red)' : 'var(--ev-muted)';
+
+  // Daily breakdown
+  const byDay = useMemo((): DaySummary[] => {
+    const map = new Map<string, DaySummary>();
+    for (const r of rows) {
+      const date = String(r.game_date).slice(0, 10);
+      if (!map.has(date)) map.set(date, { date, total: 0, wins: 0, losses: 0, pushes: 0, pl: 0, decided: 0 });
+      const d = map.get(date)!;
+      d.total++;
+      if (r.result === 'win')   { d.wins++;   d.pl += calcPL(r.result, r.best_odds); d.decided++; }
+      if (r.result === 'loss')  { d.losses++;  d.pl += calcPL(r.result, r.best_odds); d.decided++; }
+      if (r.result === 'push')  { d.pushes++; }
+    }
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [rows]);
+
+  const pending = rows.length - settled.length;
 
   return (
     <main style={{ minHeight: '100vh', background: 'var(--ev-bg)', padding: '32px 20px 60px' }}>
@@ -180,12 +214,47 @@ export default function PicksPage() {
             {/* Summary stats */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '24px' }}>
               <Stat label="Total Picks" value={String(rows.length)} />
-              <Stat label="Record" value={`${wins}-${losses}-${pushes}`} />
-              <Stat label="Win Rate" value={winRate} color={decided > 0 ? (wins / decided >= 0.5 ? 'var(--ev-green)' : 'var(--ev-red)') : undefined} />
-              <Stat label="P/L" value={fmtPL(totalPL)} color={plColor} />
+              <Stat label="Record"   value={`${wins}-${losses}-${pushes}`} />
+              <Stat label="Hit Rate" value={winRate}
+                color={decided > 0 ? (wins / decided >= 0.5 ? 'var(--ev-green)' : 'var(--ev-red)') : undefined} />
+              <Stat label="P/L"  value={fmtPL(totalPL)}  color={plColor} />
+              <Stat label="ROI"  value={roi != null ? fmtROI(roi) : '—'} color={roiColor} />
             </div>
 
-            {/* Picks table */}
+            {/* Daily breakdown */}
+            <div style={{ ...LABEL, marginBottom: '8px', letterSpacing: '3px' }}>BY DATE</div>
+            <div style={{ ...CARD, overflowX: 'auto', marginBottom: '24px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
+                    {(['DATE', 'PICKS', 'W', 'L', 'WIN RATE', 'P/L'] as const).map((h, i) => (
+                      <th key={h} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {byDay.map(d => {
+                    const wr = d.decided > 0 ? `${(d.wins / d.decided * 100).toFixed(1)}%` : '—';
+                    const plC = d.pl > 0 ? 'var(--ev-green)' : d.pl < 0 ? 'var(--ev-red)' : 'var(--ev-muted)';
+                    return (
+                      <tr key={d.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ ...TD }}>{d.date}</td>
+                        <td style={{ ...TD, textAlign: 'right', color: 'var(--ev-muted)' }}>{d.total}</td>
+                        <td style={{ ...TD, textAlign: 'right', color: 'var(--ev-green)' }}>{d.wins}</td>
+                        <td style={{ ...TD, textAlign: 'right', color: 'var(--ev-red)' }}>{d.losses}</td>
+                        <td style={{ ...TD, textAlign: 'right' }}>{wr}</td>
+                        <td style={{ ...TD, textAlign: 'right', color: plC, fontWeight: 600 }}>
+                          {d.decided > 0 ? fmtPL(d.pl) : d.pushes > 0 ? 'push' : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Individual picks */}
+            <div style={{ ...LABEL, marginBottom: '8px', letterSpacing: '3px' }}>ALL PICKS</div>
             <div style={{ ...CARD, overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -257,9 +326,9 @@ export default function PicksPage() {
               </table>
             </div>
 
-            {settled.length < rows.length && (
+            {pending > 0 && (
               <div style={{ ...LABEL, textAlign: 'center', marginTop: '16px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
-                {rows.length - settled.length} PICK(S) PENDING RESULTS
+                {pending} PICK{pending !== 1 ? 'S' : ''} PENDING RESULTS
               </div>
             )}
           </>
@@ -268,7 +337,8 @@ export default function PicksPage() {
         {/* Footer */}
         <div style={{ ...LABEL, textAlign: 'center', marginTop: '40px', fontSize: '9px', color: 'rgba(255,255,255,0.15)' }}>
           MODEL PROB &gt; 55% &nbsp;&middot;&nbsp; SWSTR% &gt; 20% &nbsp;&middot;&nbsp;
-          P/L ASSUMES 1U FLAT STAKE PER PICK AT LISTED ODDS
+          P/L &amp; ROI ASSUME 1U FLAT STAKE AT LISTED ODDS &nbsp;&middot;&nbsp;
+          ROI = P/L &divide; DECISIVE BETS (W + L)
         </div>
 
       </div>
