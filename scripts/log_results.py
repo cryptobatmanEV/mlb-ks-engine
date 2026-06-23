@@ -249,6 +249,99 @@ def write_results_to_db(date_str, pred_df):
         print(f"  WARNING: ks_predictions result write failed: {e}")
 
 
+def grade_ai_picks_log(date_str, pred_df):
+    """
+    Update ks_ai_picks_log SET actual_k, result for rows where game_date matches
+    and actual_k is not yet set. Grading uses each row's own book_line/book_side.
+    """
+    import psycopg2
+    db_url = os.getenv('DATABASE_URL')
+    if not db_url:
+        return
+
+    known = pred_df[pred_df['actual_k'] >= 0][['pitcher', 'actual_k']].copy()
+    if known.empty:
+        return
+
+    actual_by_pitcher = dict(zip(known['pitcher'].astype(int), known['actual_k'].astype(int)))
+
+    try:
+        conn = psycopg2.connect(db_url)
+        try:
+            updated = 0
+            with conn:
+                with conn.cursor() as cur:
+                    # Ensure the table exists before querying it
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS ks_ai_picks_log (
+                            id                   SERIAL PRIMARY KEY,
+                            game_date            DATE        NOT NULL,
+                            captured_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            pitcher              INT         NOT NULL,
+                            pitcher_name         TEXT,
+                            team                 TEXT,
+                            book_line            NUMERIC,
+                            book_side            TEXT,
+                            best_odds            INT,
+                            best_book            TEXT,
+                            edge_book            NUMERIC,
+                            model_prob_book_line NUMERIC,
+                            composite_score      NUMERIC,
+                            pred_k               NUMERIC,
+                            adj_k                NUMERIC,
+                            pp_line              NUMERIC,
+                            pp_side              TEXT,
+                            edge_pp              NUMERIC,
+                            actual_k             INT,
+                            result               TEXT
+                        )
+                    """)
+
+                    cur.execute(
+                        """
+                        SELECT id, pitcher, book_line, book_side
+                          FROM ks_ai_picks_log
+                         WHERE game_date = %s
+                           AND actual_k IS NULL
+                        """,
+                        (date_str,),
+                    )
+                    rows = cur.fetchall()
+
+                    for row_id, pitcher_id, line, side in rows:
+                        actual_k = actual_by_pitcher.get(int(pitcher_id))
+                        if actual_k is None:
+                            continue
+
+                        if line is None or side is None:
+                            result = None
+                        elif actual_k == float(line):
+                            result = 'push'
+                        elif (side or 'over').lower() == 'under':
+                            result = 'win' if actual_k < float(line) else 'loss'
+                        else:
+                            result = 'win' if actual_k > float(line) else 'loss'
+
+                        cur.execute(
+                            """
+                            UPDATE ks_ai_picks_log
+                               SET actual_k = %s, result = %s
+                             WHERE id = %s
+                            """,
+                            (actual_k, result, row_id),
+                        )
+                        updated += cur.rowcount
+
+            if updated:
+                print(f"  Graded {updated} AI pick(s) in ks_ai_picks_log.")
+            else:
+                print("  No ungraded AI picks for this date.")
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"  WARNING: ks_ai_picks_log grading failed: {e}")
+
+
 def backfill_tracked_bets(date_str, pred_df):
     """
     After results are logged, settle ks_tracked_bets rows for this date
@@ -341,6 +434,7 @@ def run(date_str=None, force_db=False):
         pred_df = log[log['game_date'].astype(str) == str(date_str)].copy()
         write_results_to_db(date_str, pred_df)
         backfill_tracked_bets(date_str, pred_df)
+        grade_ai_picks_log(date_str, pred_df)
         print_calibration_summary()
         return
 
@@ -402,9 +496,10 @@ def run(date_str=None, force_db=False):
     total_rows = append_to_log(pred_df[save_cols])
     print(f"\n  Appended {len(pred_df)} rows to {LOG_PATH}  ({total_rows} total rows in log)")
 
-    # Write results to Neon (ks_predictions + ks_tracked_bets)
+    # Write results to Neon (ks_predictions + ks_tracked_bets + ks_ai_picks_log)
     write_results_to_db(date_str, pred_df)
     backfill_tracked_bets(date_str, pred_df)
+    grade_ai_picks_log(date_str, pred_df)
 
     # Running calibration summary
     print_calibration_summary()

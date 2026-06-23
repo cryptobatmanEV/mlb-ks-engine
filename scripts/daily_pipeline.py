@@ -70,18 +70,22 @@ def run(date_str=None):
 
     # Step 2: daily runner (fatal if it fails -- nothing to do in steps 3-4)
     from predict.daily_runner import run as runner_run
-    preds, ok = _run_step(f"Step 2/4  Daily runner ({date_str})", runner_run, date_str)
+    preds, ok = _run_step(f"Step 2/5  Daily runner ({date_str})", runner_run, date_str)
     if not ok or preds is None or len(preds) == 0:
         print("\nFATAL: daily runner produced no output. Stopping.")
         sys.exit(1)
 
     # Step 3: fair odds (non-fatal -- predictions are already saved)
     from predict.fair_odds import run as odds_run
-    _run_step(f"Step 3/4  Fair odds ({date_str})", odds_run, date_str)
+    _run_step(f"Step 3/5  Fair odds ({date_str})", odds_run, date_str)
 
     # Step 4: write to Neon DB (non-fatal -- CSV is the source of truth)
     from scripts.write_to_db import run as db_run
-    _run_step(f"Step 4/4  Write to DB ({date_str})", db_run, date_str)
+    _run_step(f"Step 4/5  Write to DB ({date_str})", db_run, date_str)
+
+    # Step 5: log AI picks to ks_ai_picks_log (non-fatal)
+    from scripts.log_ai_picks import run as ai_picks_run
+    _run_step(f"Step 5/5  Log AI picks ({date_str})", ai_picks_run, date_str)
 
     print(f"\n{'#' * 60}")
     print(f"#  Done  --  {date_str}")
