@@ -546,23 +546,31 @@ def join_sportsbook_odds(pred_df, odds_df):
                   .reset_index()[['name_norm', 'point']]
                   .rename(columns={'point': 'book_line'}))
 
-    # Per-book odds at consensus line for market data section in UI
+    # Per-book odds for market data section in UI.
+    # For each book, find the line point closest to the consensus line
+    # (books often post different half-points than the consensus) and store
+    # { line, over, under } so the UI can show each book's actual line.
     _bm_lookup = {}
     for _, _c in consensus.iterrows():
-        _nm, _line = _c['name_norm'], _c['book_line']
-        _at = odds_df[(odds_df['name_norm'] == _nm) & (odds_df['point'] == _line)]
+        _nm, _line = _c['name_norm'], float(_c['book_line'])
+        _pitcher_odds = odds_df[odds_df['name_norm'] == _nm]
         _entry = {}
         for _book in MARKET_BOOKS:
-            _bk = _at[_at['bookmaker'].str.lower() == _book]
+            _bk = _pitcher_odds[_pitcher_odds['bookmaker'].str.lower() == _book]
             if _bk.empty:
                 _entry[_book] = None
-            else:
-                _ov = _bk[_bk['side'] == 'Over']
-                _un = _bk[_bk['side'] == 'Under']
-                _entry[_book] = {
-                    'over': int(_ov['odds_american'].iloc[0]) if not _ov.empty else None,
-                    'under': int(_un['odds_american'].iloc[0]) if not _un.empty else None,
-                }
+                continue
+            # Pick the point closest to consensus; tiebreak by lower value
+            _pts = sorted(_bk['point'].unique(), key=lambda p: (abs(float(p) - _line), float(p)))
+            _best_pt = float(_pts[0])
+            _at = _bk[_bk['point'] == _pts[0]]
+            _ov = _at[_at['side'] == 'Over']
+            _un = _at[_at['side'] == 'Under']
+            _entry[_book] = {
+                'line': _best_pt,
+                'over': int(_ov['odds_american'].iloc[0]) if not _ov.empty else None,
+                'under': int(_un['odds_american'].iloc[0]) if not _un.empty else None,
+            }
         _bm_lookup[_nm] = json.dumps(_entry)
 
     def best_side(side_name):
