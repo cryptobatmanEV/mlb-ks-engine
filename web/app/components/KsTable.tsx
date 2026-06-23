@@ -251,7 +251,52 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
     }}>
       <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
 
-        {/* Model & market (mobile only -- desktop shows these as table columns) */}
+        {/* MY LINE — desktop expanded view (showMarket=false, myLine passed).
+            On mobile showMarket=true and MY LINE lives inside MODEL & MARKET. */}
+        {!showMarket && myLine && (
+          <>
+            <div>
+              <div style={SECTION_LABEL}>MY LINE</div>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: '72px' }}>
+                  <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>K LINE</div>
+                  <input
+                    type="text"
+                    placeholder="K LINE"
+                    value={myLine.raw}
+                    onChange={e => myLine.onChange(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      width:        '64px',
+                      background:   'rgba(255,255,255,0.04)',
+                      border:       `1px solid ${myLine.num != null ? 'rgba(255,200,0,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                      borderRadius: '2px',
+                      color:        myLine.num != null ? 'var(--ev-gold)' : 'rgba(255,255,255,0.25)',
+                      fontFamily:   'var(--font-mono)',
+                      fontSize:     '13px',
+                      fontWeight:   500,
+                      padding:      '3px 7px',
+                      textAlign:    'right',
+                      outline:      'none',
+                      marginTop:    '2px',
+                    }}
+                  />
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY EDGE</div>
+                  <div style={{ ...STAT_VAL, color: myEdgeDisp!.color, fontWeight: myEdgeDisp!.weight }}>
+                    {myLine.num != null && myLine.side && myEdgeDisp!.text !== '—'
+                      ? `${myLine.side === 'under' ? 'U' : 'O'} ${myEdgeDisp!.text}`
+                      : myEdgeDisp!.text}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {DIVIDER}
+          </>
+        )}
+
+        {/* Model & market (mobile only — desktop shows these as table columns) */}
         {showMarket && (
           <>
             <div>
@@ -298,7 +343,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                     return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
                   })()}
                 </div>
-                {/* Custom line */}
+                {/* Custom line (mobile) */}
                 {myLine && (
                   <>
                     <div style={{ minWidth: '72px' }}>
@@ -1539,7 +1584,16 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   {isExpanded && (
                     <tr style={{ borderBottom: '1px solid var(--ev-border)' }}>
                       <td colSpan={cols.length} style={{ padding: 0 }}>
-                        <DetailCard row={row} />
+                        <DetailCard
+                          row={row}
+                          myLine={{
+                            raw:      rawInput,
+                            num:      customNum,
+                            edge:     myEdge,
+                            side:     mySide,
+                            onChange: val => setCustomLines(prev => ({ ...prev, [id]: val })),
+                          }}
+                        />
                       </td>
                     </tr>
                   )}
