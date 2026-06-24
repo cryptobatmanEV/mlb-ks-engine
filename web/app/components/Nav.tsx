@@ -2,7 +2,6 @@ import Link from 'next/link';
 
 const links = [
   { href: '/',            label: 'CARD',        id: 'card'        },
-  { href: '/picks',       label: 'AI PICKS',    id: 'picks'       },
   { href: '/tracker',     label: 'TRACKER',     id: 'tracker'     },
   { href: '/leaderboard', label: 'LEADERBOARD', id: 'leaderboard' },
   { href: '/guide',       label: 'GUIDE',       id: 'guide'       },
@@ -21,7 +20,7 @@ export default function Nav({ active }: { active: Page }) {
       overflow:     'hidden',
     }}>
       {links.map(({ href, label, id }, idx) => (
-        <Link key={href} href={href} className={id === 'picks' ? 'ks-nav-picks-link' : undefined} style={{
+        <Link key={href} href={href} style={{
           fontFamily:     'var(--font-mono)',
           fontSize:       '10px',
           letterSpacing:  '2.5px',

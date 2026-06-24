@@ -184,7 +184,7 @@ export default function PicksPage() {
           </div>
         </header>
 
-        <Nav active="picks" />
+        <Nav active="card" />
 
         {loading && (
           <div style={{ ...CARD, padding: '48px', textAlign: 'center' }}>
