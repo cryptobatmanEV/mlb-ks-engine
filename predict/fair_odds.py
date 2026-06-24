@@ -43,7 +43,7 @@ import re
 import sys
 import time
 import unicodedata
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -254,11 +254,13 @@ def _map_parlay_api_rows(raw_rows, date_str):
         if not ts:
             return None
         try:
-            return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except ValueError:
             return None
 
-    from datetime import timezone
     window_start = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
     next_day = (datetime.fromisoformat(date_str) + timedelta(days=1)).strftime('%Y-%m-%d')
     window_end = datetime.fromisoformat(f"{next_day}T09:00:00+00:00")
