@@ -88,9 +88,12 @@ input::placeholder { color: var(--ev-dim); opacity: 1; }
 }
 
 @media (max-width: 768px) {
-  .ks-table-desktop { display: none; }
-  .ks-table-mobile  { display: flex; flex-direction: column; gap: 8px; }
-  .ks-mobile-sort   { display: flex; }
+  .ks-table-desktop  { display: none; }
+  .ks-table-mobile   { display: flex; flex-direction: column; gap: 8px; }
+  .ks-mobile-sort    { display: flex; }
+  /* Hide AI PICKS from the top nav bar on mobile — it lives as a view
+     toggle inside the CARD tab (BY EDGE / BY GAME / AI PICKS buttons). */
+  .ks-nav-picks-link { display: none; }
 }
 
 .ks-mobile-card {
@@ -126,6 +129,33 @@ input::placeholder { color: var(--ev-dim); opacity: 1; }
 
 @media (max-width: 768px) {
   .scroll-hint { display: block; }
+}
+
+/* ── Tracker stats grid ───────────────────────────────────────────────── */
+
+.tracker-stats-grid {
+  display:             grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap:                 1px;
+  background:          var(--ev-border);
+  border:              1px solid var(--ev-border);
+  border-radius:       2px;
+  overflow:            hidden;
+  margin-bottom:       16px;
+}
+
+@media (max-width: 600px) {
+  .tracker-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Tracker bets: mobile card list ──────────────────────────────────── */
+
+.bets-table-desktop { display: block; }
+.bets-table-mobile  { display: none; }
+
+@media (max-width: 600px) {
+  .bets-table-desktop { display: none; }
+  .bets-table-mobile  { display: flex; flex-direction: column; gap: 8px; }
 }
 
 /* ── Responsive: leaderboard ──────────────────────────────────────────── */

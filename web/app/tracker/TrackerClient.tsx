@@ -204,16 +204,7 @@ export default function TrackerClient() {
         ) : (
           <>
             {/* Stats grid */}
-            <div style={{
-              display:             'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap:                 '1px',
-              background:          'var(--ev-border)',
-              border:              '1px solid var(--ev-border)',
-              borderRadius:        '2px',
-              overflow:            'hidden',
-              marginBottom:        '16px',
-            }}>
+            <div className="tracker-stats-grid">
               {([
                 {
                   label: 'BETS',
