@@ -59,7 +59,7 @@ ODDS_BASE = 'https://api.the-odds-api.com'
 PARLAY_API_KEY = os.getenv('PARLAY_API_KEY')
 PARLAY_BASE = 'https://parlay-api.com/v1'
 
-MARKET_BOOKS = ['pinnacle', 'fanduel', 'novig', 'prophetx', 'draftkings', 'circa']
+MARKET_BOOKS = ['pinnacle', 'fanduel', 'draftkings', 'betrivers', 'novig', 'betmgm']
 
 # Controls which sportsbook odds provider is used. 'odds_api' is the default
 # and preserves the existing behaviour. Set to 'parlay_api' to use ParlayAPI.
@@ -154,16 +154,6 @@ def model_prob_over(pred_k, line):
     to correct for mild overconfidence at large predicted edges."""
     p_over = float(1 - poisson.cdf(int(line), pred_k))
     return 0.5 + (p_over - 0.5) * EDGE_SCALE
-
-
-# How far ADJ Ks must sit from a line before the recommended side is forced
-# to follow the projection direction (over if adj_k is this much above the
-# line, under if this much below), overriding the raw edge comparison. Below
-# this margin the direction is genuinely ambiguous, so the side with the
-# larger edge vs. the market's implied probability is used instead. This
-# avoids counterintuitive plays where the model projects well above a line
-# but a vig quirk gives the under a marginally larger edge.
-SIDE_MARGIN = 0.3
 
 
 # Weight given to the model's own projection when blending it with the
@@ -286,8 +276,8 @@ def _map_parlay_api_rows(raw_rows, date_str):
             line_val = float(line)
         except (TypeError, ValueError):
             continue
-        if line_val < 3.5 or line_val > 12.5:
-            continue  # drop alt lines (2.5, 17.5) and game-total / hitter props
+        if line_val < 2.5 or line_val > 12.5:
+            continue  # drop extreme alt lines (1.5) and game-total / hitter props
 
         over_price = row.get('over_price')
         under_price = row.get('under_price')
@@ -533,20 +523,31 @@ def join_sportsbook_odds(pred_df, odds_df):
 
     overs = odds_df[odds_df['side'] == 'Over']
 
-    # Consensus line: most frequently quoted Over point.
-    # Tie-break: when multiple lines tie on count (e.g. a single book posting
-    # several alt lines each at n=1), pick the line whose mean over_implied is
-    # closest to 0.5 — the primary market line is priced near even-money, while
-    # low alt lines (~2.5) are ~80% over and high alt lines (~17.5) are ~5% over.
-    _freq = overs.groupby(['name_norm', 'point']).size().reset_index(name='n')
-    _impl = (overs.groupby(['name_norm', 'point'])['implied']
-             .mean().reset_index(name='over_implied_mean'))
-    _freq = _freq.merge(_impl, on=['name_norm', 'point'])
-    _freq['balance'] = (_freq['over_implied_mean'] - 0.5).abs()
-    consensus = (_freq.sort_values(['name_norm', 'n', 'balance'], ascending=[True, False, True])
-                  .groupby('name_norm').first()
-                  .reset_index()[['name_norm', 'point']]
-                  .rename(columns={'point': 'book_line'}))
+    # Consensus line: per-book median of available lines, then median across
+    # books, snapped to the nearest real line in the data.
+    # Using the median of each book's own alt-line offerings identifies the
+    # "center" of a book's market (which approximates their main line), then
+    # the cross-book median resolves disagreements robustly.
+    _pb_rows = []
+    for (nm, bk), grp in overs.groupby(['name_norm', 'bookmaker']):
+        bk_pts = sorted(grp['point'].unique())
+        n = len(bk_pts)
+        bk_med = bk_pts[n // 2] if n % 2 == 1 else (bk_pts[n // 2 - 1] + bk_pts[n // 2]) / 2.0
+        _pb_rows.append({'name_norm': nm, 'bk_med': float(bk_med)})
+    _pb_df = pd.DataFrame(_pb_rows)
+
+    _raw_med = (_pb_df.groupby('name_norm')['bk_med']
+                .median().reset_index(name='raw_line'))
+
+    # Snap the raw median to the nearest line that actually exists in the data
+    _real_pts = (overs.groupby('name_norm')['point']
+                 .apply(lambda x: sorted(x.unique())).reset_index(name='pts'))
+    _raw_med = _raw_med.merge(_real_pts, on='name_norm')
+    _raw_med['book_line'] = _raw_med.apply(
+        lambda r: min(r['pts'], key=lambda p: (abs(float(p) - r['raw_line']), float(p))),
+        axis=1,
+    )
+    consensus = _raw_med[['name_norm', 'book_line']]
 
     # Per-book odds for market data section in UI.
     # For each book, find the line point closest to the consensus line
@@ -620,15 +621,10 @@ def join_sportsbook_odds(pred_df, odds_df):
         if edge_over is None and edge_under is None:
             return pd.Series([None, None, None, None, None, None])
 
-        # When ADJ Ks sits clearly above or below the line, force the
-        # recommendation to follow the projection direction rather than
-        # whichever side happens to have the larger edge. Within
-        # SIDE_MARGIN of the line, direction is ambiguous, so fall back to
-        # the edge comparison.
         diff = r['adj_k'] - r['book_line']
-        if diff > SIDE_MARGIN and edge_over is not None:
+        if diff > 0 and edge_over is not None:
             pick_over = True
-        elif diff < -SIDE_MARGIN and edge_under is not None:
+        elif diff < 0 and edge_under is not None:
             pick_over = False
         else:
             pick_over = edge_under is None or (edge_over is not None and edge_over >= edge_under)

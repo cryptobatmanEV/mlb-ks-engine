@@ -501,10 +501,10 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
           const BOOKS: { key: string; label: string }[] = [
             { key: 'pinnacle',   label: 'Pinnacle'   },
             { key: 'fanduel',    label: 'FanDuel'    },
-            { key: 'novig',      label: 'Novig'      },
-            { key: 'prophetx',   label: 'ProphetX'   },
             { key: 'draftkings', label: 'DraftKings' },
-            { key: 'circa',      label: 'Circa'      },
+            { key: 'betrivers',  label: 'BetRivers'  },
+            { key: 'novig',      label: 'Novig'      },
+            { key: 'betmgm',     label: 'BetMGM'     },
           ];
           const hasAny = BOOKS.some(b => markets[b.key] != null);
           if (!hasAny) return null;
