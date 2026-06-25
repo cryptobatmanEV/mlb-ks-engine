@@ -244,107 +244,6 @@ ON CONFLICT (game_date, pitcher, game_pk) DO UPDATE SET
     created_at           = NOW();
 """
 
-# Same INSERT as UPSERT, but on conflict the 13 odds columns are never
-# overwritten — existing DB values are kept unconditionally.  Used for rows
-# where fair_odds.py set is_frozen=1 (market closed; values carried from the
-# prior run's CSV to prevent stale frozen data from regressing a fresher DB write).
-UPSERT_FROZEN = """
-INSERT INTO ks_predictions (
-    game_date, game_pk, pitcher, pitcher_name, team, opp_team, home_team, away_team,
-    is_home, day_night, venue, game_time,
-    pred_k, adj_k, p_over_4_5, p_over_5_5, p_over_6_5, p_over_7_5, p_over_8_5,
-    has_line, book_line, book_side, best_book, best_odds, book_implied,
-    model_prob_book_line, edge_book,
-    pp_line, pp_side, model_prob_pp_line, edge_pp,
-    book_markets,
-    rest_days, prev_pitches, n_prior_starts,
-    opp_k_pct_15, opp_ops_15, opp_chase_pct_15, n_prior_team_games,
-    park_k_factor, temp_f, wind_speed, wind_favor, is_dome,
-    p_k_per9_10, p_bb_per9_10, p_hr_per9_10, p_whip_10, p_fip_10,
-    p_k_pct_10, p_swstr_pct_10, p_called_strike_pct_10, p_chase_pct_10,
-    p_fp_strike_pct_10, p_fastball_velo_10, p_fastball_pct_10,
-    p_slider_pct_10, p_curveball_pct_10, p_changeup_pct_10, p_other_pct_10,
-    p_avg_pitches_10, p_avg_ip_10
-) VALUES (
-    %(game_date)s, %(game_pk)s, %(pitcher)s, %(pitcher_name)s, %(team)s, %(opp_team)s,
-    %(home_team)s, %(away_team)s,
-    %(is_home)s, %(day_night)s, %(venue)s, %(game_time)s,
-    %(pred_k)s, %(adj_k)s, %(p_over_4_5)s, %(p_over_5_5)s, %(p_over_6_5)s, %(p_over_7_5)s, %(p_over_8_5)s,
-    %(has_line)s, %(book_line)s, %(book_side)s, %(best_book)s, %(best_odds)s, %(book_implied)s,
-    %(model_prob_book_line)s, %(edge_book)s,
-    %(pp_line)s, %(pp_side)s, %(model_prob_pp_line)s, %(edge_pp)s,
-    %(book_markets)s,
-    %(rest_days)s, %(prev_pitches)s, %(n_prior_starts)s,
-    %(opp_k_pct_15)s, %(opp_ops_15)s, %(opp_chase_pct_15)s, %(n_prior_team_games)s,
-    %(park_k_factor)s, %(temp_f)s, %(wind_speed)s, %(wind_favor)s, %(is_dome)s,
-    %(p_k_per9_10)s, %(p_bb_per9_10)s, %(p_hr_per9_10)s, %(p_whip_10)s, %(p_fip_10)s,
-    %(p_k_pct_10)s, %(p_swstr_pct_10)s, %(p_called_strike_pct_10)s, %(p_chase_pct_10)s,
-    %(p_fp_strike_pct_10)s, %(p_fastball_velo_10)s, %(p_fastball_pct_10)s,
-    %(p_slider_pct_10)s, %(p_curveball_pct_10)s, %(p_changeup_pct_10)s, %(p_other_pct_10)s,
-    %(p_avg_pitches_10)s, %(p_avg_ip_10)s
-)
-ON CONFLICT (game_date, pitcher, game_pk) DO UPDATE SET
-    pitcher_name         = EXCLUDED.pitcher_name,
-    team                 = EXCLUDED.team,
-    opp_team             = EXCLUDED.opp_team,
-    home_team            = EXCLUDED.home_team,
-    away_team            = EXCLUDED.away_team,
-    is_home              = EXCLUDED.is_home,
-    day_night            = EXCLUDED.day_night,
-    venue                = EXCLUDED.venue,
-    game_time            = EXCLUDED.game_time,
-    pred_k               = EXCLUDED.pred_k,
-    p_over_4_5           = EXCLUDED.p_over_4_5,
-    p_over_5_5           = EXCLUDED.p_over_5_5,
-    p_over_6_5           = EXCLUDED.p_over_6_5,
-    p_over_7_5           = EXCLUDED.p_over_7_5,
-    p_over_8_5           = EXCLUDED.p_over_8_5,
-    has_line             = ks_predictions.has_line,
-    book_line            = ks_predictions.book_line,
-    book_side            = ks_predictions.book_side,
-    best_book            = ks_predictions.best_book,
-    best_odds            = ks_predictions.best_odds,
-    book_implied         = ks_predictions.book_implied,
-    model_prob_book_line = ks_predictions.model_prob_book_line,
-    edge_book            = ks_predictions.edge_book,
-    adj_k                = ks_predictions.adj_k,
-    pp_line              = ks_predictions.pp_line,
-    pp_side              = ks_predictions.pp_side,
-    model_prob_pp_line   = ks_predictions.model_prob_pp_line,
-    edge_pp              = ks_predictions.edge_pp,
-    book_markets         = ks_predictions.book_markets,
-    rest_days            = EXCLUDED.rest_days,
-    prev_pitches         = EXCLUDED.prev_pitches,
-    n_prior_starts       = EXCLUDED.n_prior_starts,
-    opp_k_pct_15         = EXCLUDED.opp_k_pct_15,
-    opp_ops_15           = EXCLUDED.opp_ops_15,
-    opp_chase_pct_15     = EXCLUDED.opp_chase_pct_15,
-    n_prior_team_games   = EXCLUDED.n_prior_team_games,
-    park_k_factor        = EXCLUDED.park_k_factor,
-    temp_f               = EXCLUDED.temp_f,
-    wind_speed           = EXCLUDED.wind_speed,
-    wind_favor           = EXCLUDED.wind_favor,
-    is_dome              = EXCLUDED.is_dome,
-    p_k_per9_10          = EXCLUDED.p_k_per9_10,
-    p_bb_per9_10         = EXCLUDED.p_bb_per9_10,
-    p_hr_per9_10         = EXCLUDED.p_hr_per9_10,
-    p_whip_10            = EXCLUDED.p_whip_10,
-    p_fip_10             = EXCLUDED.p_fip_10,
-    p_k_pct_10           = EXCLUDED.p_k_pct_10,
-    p_swstr_pct_10       = EXCLUDED.p_swstr_pct_10,
-    p_called_strike_pct_10 = EXCLUDED.p_called_strike_pct_10,
-    p_chase_pct_10       = EXCLUDED.p_chase_pct_10,
-    p_fp_strike_pct_10   = EXCLUDED.p_fp_strike_pct_10,
-    p_fastball_velo_10   = EXCLUDED.p_fastball_velo_10,
-    p_fastball_pct_10    = EXCLUDED.p_fastball_pct_10,
-    p_slider_pct_10      = EXCLUDED.p_slider_pct_10,
-    p_curveball_pct_10   = EXCLUDED.p_curveball_pct_10,
-    p_changeup_pct_10    = EXCLUDED.p_changeup_pct_10,
-    p_other_pct_10       = EXCLUDED.p_other_pct_10,
-    p_avg_pitches_10     = EXCLUDED.p_avg_pitches_10,
-    p_avg_ip_10          = EXCLUDED.p_avg_ip_10,
-    created_at           = NOW();
-"""
 
 
 def _clean(val):
@@ -420,11 +319,16 @@ def run(date_str=None):
 
                 n_frozen = 0
                 for _, row in df.iterrows():
+                    # is_frozen=1 means fair_odds.py carried odds from a prior CSV run
+                    # because the market closed (game started). We pass has_line=False
+                    # so the UPSERT's CASE logic keeps the existing DB value rather
+                    # than overwriting it with a potentially stale frozen value.
+                    # This also protects any manual DB fixes from being reverted.
                     is_frozen = bool(int(row.get('is_frozen', 0) or 0))
                     if is_frozen:
                         n_frozen += 1
-                    stmt = UPSERT_FROZEN if is_frozen else UPSERT
-                    cur.execute(stmt, {
+                    has_line_db = False if is_frozen else _bool(row.get('has_line'))
+                    cur.execute(UPSERT, {
                         'game_date': date_str,
                         'game_pk': int(row['game_pk']),
                         'pitcher': int(row['pitcher']),
@@ -444,7 +348,7 @@ def run(date_str=None):
                         'p_over_6_5': _clean(row.get('p_over_6.5')),
                         'p_over_7_5': _clean(row.get('p_over_7.5')),
                         'p_over_8_5': _clean(row.get('p_over_8.5')),
-                        'has_line': _bool(row.get('has_line')),
+                        'has_line': has_line_db,
                         'book_line': _clean(row.get('book_line')),
                         'book_side': _str(row.get('book_side')),
                         'best_book': _str(row.get('best_book')),
@@ -488,7 +392,7 @@ def run(date_str=None):
                         'p_avg_pitches_10': _clean(row.get('p_avg_pitches_10')),
                         'p_avg_ip_10': _clean(row.get('p_avg_ip_10')),
                     })
-        frozen_note = f" ({n_frozen} frozen — odds kept from DB)" if n_frozen else ""
+        frozen_note = f" ({n_frozen} frozen — DB values preserved)" if n_frozen else ""
         print(f"  Done -- {len(df)} rows upserted{frozen_note}.")
     finally:
         conn.close()
