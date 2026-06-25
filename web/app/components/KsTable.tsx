@@ -523,7 +523,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                 <tbody>
                   {BOOKS.map(({ key, label }) => {
                     const data = markets[key];
-                    const bookLine = data?.line ?? row.book_line;
+                    const bookLine = data?.line ?? null;
                     const odds = data != null
                       ? (favSide === 'under' ? data.under : data.over)
                       : null;

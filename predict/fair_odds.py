@@ -261,6 +261,10 @@ def _map_parlay_api_rows(raw_rows, date_str):
         if row.get('is_dfs_flat_payout', False):
             continue
 
+        # API returns all market types; only strikeout rows belong here
+        if row.get('market_key') != 'player_strikeouts':
+            continue
+
         ct = _parse_ct(row.get('commence_time', ''))
         if ct is None or not (window_start <= ct < window_end):
             continue
