@@ -685,8 +685,8 @@ const COLS: ColDef[] = [
   { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right' },
   { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
   { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
-  { key: null,              label: 'MY LINE',   align: 'right', hide: 'lvl1' },
-  { key: null,              label: 'MY EDGE',   align: 'right', hide: 'lvl1' },
+  { key: null,              label: 'MY LINE',   align: 'right' },
+  { key: null,              label: 'MY EDGE',   align: 'right' },
   { key: null,              label: '',          align: 'right' },
 ];
 
@@ -1525,7 +1525,6 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
                     {/* MY LINE */}
                     <td
-                      className="ks-col-lvl1"
                       style={{ padding: '6px 10px', textAlign: 'right' }}
                       onClick={e => e.stopPropagation()}
                     >
@@ -1550,7 +1549,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* MY EDGE */}
-                    <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
                       {customNum != null && mySide && myEdgeDisp.text !== '—'
                         ? `${mySide === 'under' ? 'U' : 'O'} ${myEdgeDisp.text}`
                         : myEdgeDisp.text}
@@ -1634,6 +1633,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
           const mSide       = mProbOver != null ? (mProbOver >= 0.5 ? 'over' : 'under') : null;
           const mProb       = mProbOver != null ? (mSide === 'over' ? mProbOver : 1 - mProbOver) : null;
           const mEdge       = mProb != null ? mProb - 0.5 : null;
+          const mEdgeDisp   = edgeDisplay(mEdge, mCustomNum != null);
 
           return (
             <div key={`m-${id}`} className="ks-mobile-card" onClick={() => toggleExpand(id)}>
@@ -1708,6 +1708,55 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     isTracked={trackedKeys.has(trackedKey(row.game_date, row.pitcher))}
                     authHeaders={authHeaders}
                   />
+                </div>
+              </div>
+
+              {/* MY LINE — always visible on mobile card */}
+              <div
+                style={{
+                  display:    'flex',
+                  gap:        '20px',
+                  alignItems: 'flex-end',
+                  marginTop:  '10px',
+                  paddingTop: '10px',
+                  borderTop:  '1px solid var(--ev-border)',
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div>
+                  <div style={{ ...LABEL, color: 'var(--ev-gold)', marginBottom: '4px' }}>MY LINE</div>
+                  <input
+                    type="text"
+                    placeholder="5.5"
+                    value={mRawInput}
+                    onChange={e => setCustomLines(prev => ({ ...prev, [id]: e.target.value }))}
+                    style={{
+                      width:        '64px',
+                      background:   'rgba(255,255,255,0.04)',
+                      border:       `1px solid ${mCustomNum != null ? 'rgba(255,200,0,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                      borderRadius: '2px',
+                      color:        mCustomNum != null ? 'var(--ev-gold)' : 'rgba(255,255,255,0.25)',
+                      fontFamily:   'var(--font-mono)',
+                      fontSize:     '13px',
+                      fontWeight:   500,
+                      padding:      '4px 8px',
+                      textAlign:    'right',
+                      outline:      'none',
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ ...LABEL, color: 'var(--ev-gold)', marginBottom: '4px' }}>MY EDGE</div>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize:   '15px',
+                    fontWeight: mEdgeDisp.weight,
+                    color:      mEdgeDisp.color,
+                  }}>
+                    {mCustomNum != null && mSide && mEdgeDisp.text !== '—'
+                      ? `${mSide === 'under' ? 'U' : 'O'} ${mEdgeDisp.text}`
+                      : mEdgeDisp.text}
+                  </div>
                 </div>
               </div>
 
