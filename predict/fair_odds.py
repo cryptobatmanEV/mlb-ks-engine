@@ -329,7 +329,7 @@ def fetch_parlay_api_strikeouts(date_str):
     for books in book_groups:
         try:
             data = _parlay_get('/sports/baseball_mlb/props',
-                               {'market_key': 'player_strikeouts', 'bookmakers': books})
+                               {'markets': 'player_strikeouts', 'bookmakers': books})
         except requests.HTTPError as e:
             code = e.response.status_code
             body = {}
