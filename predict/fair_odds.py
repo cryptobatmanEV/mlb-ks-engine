@@ -308,56 +308,72 @@ def _map_parlay_api_rows(raw_rows, date_str):
 
 
 def fetch_parlay_api_strikeouts(date_str):
-    """Fetch MLB pitcher strikeout props from ParlayAPI (3 credits, all books).
+    """Fetch MLB pitcher strikeout props from ParlayAPI using targeted per-bookmaker calls.
 
-    Single call to /v1/sports/baseball_mlb/props?market_key=player_strikeouts
-    returns props for every bookmaker at once, replacing the per-event loop
-    used by the OddsAPI flow. Rows are filtered to a 36-hour window for
-    date_str and pivoted to the same shape as fetch_pitcher_strikeout_props().
-
-    Name matching: ParlayAPI returns player as a plain "First Last" string,
-    same format our model uses, so norm_name() handles accents/suffixes the
-    same way as with OddsAPI outcome descriptions.
+    The combined (no-bookmaker filter) call silently truncates data for high-volume
+    books: DraftKings returns 1200 rows in a dedicated call but only 231 in the
+    combined response. We make three separate calls to ensure complete coverage,
+    then merge and deduplicate before applying filters.
     """
     if not PARLAY_API_KEY:
         print("  PARLAY_API_KEY not set -- skipping sportsbook lines.")
         return pd.DataFrame()
 
-    try:
-        data = _parlay_get('/sports/baseball_mlb/props',
-                           {'market_key': 'player_strikeouts'})
-    except requests.HTTPError as e:
-        code = e.response.status_code
-        body = {}
+    book_groups = [
+        'pinnacle,betrivers,novig,betmgm,bet365',
+        'draftkings',
+        'fanduel',
+    ]
+
+    all_raw = []
+    for books in book_groups:
         try:
-            body = e.response.json()
-        except Exception:
-            pass
-        if code == 401:
-            print("  ParlayAPI auth failed (401). Check PARLAY_API_KEY in .env.")
-        elif code == 402:
-            print("  ParlayAPI credit limit reached (402).")
+            data = _parlay_get('/sports/baseball_mlb/props',
+                               {'market_key': 'player_strikeouts', 'bookmakers': books})
+        except requests.HTTPError as e:
+            code = e.response.status_code
+            body = {}
+            try:
+                body = e.response.json()
+            except Exception:
+                pass
+            if code == 401:
+                print(f"  ParlayAPI auth failed (401) for [{books}]. Check PARLAY_API_KEY.")
+            elif code == 402:
+                print(f"  ParlayAPI credit limit reached (402) for [{books}].")
+            else:
+                print(f"  ParlayAPI props failed ({code}) for [{books}]: {body.get('message', body)}")
+            continue
+        except Exception as e:
+            print(f"  ParlayAPI error for [{books}]: {e}")
+            continue
+
+        if isinstance(data, list):
+            chunk = data
+        elif isinstance(data, dict):
+            chunk = data.get('data') or data.get('results') or []
         else:
-            print(f"  ParlayAPI props failed ({code}): {body.get('message', body)}")
-        return pd.DataFrame()
-    except Exception as e:
-        print(f"  ParlayAPI error: {e}")
+            chunk = []
+        print(f"  ParlayAPI [{books}]: {len(chunk)} rows")
+        all_raw.extend(chunk)
+
+    if not all_raw:
+        print("  ParlayAPI: all calls returned no data.")
         return pd.DataFrame()
 
-    # Response may be a bare list or wrapped: {"data": [...]} / {"results": [...]}
-    if isinstance(data, list):
-        raw_rows = data
-    elif isinstance(data, dict):
-        raw_rows = data.get('data') or data.get('results') or []
-    else:
-        print(f"  ParlayAPI returned unexpected type: {type(data)}")
-        return pd.DataFrame()
+    # Deduplicate on (player, bookmaker, market_key, line) before filtering
+    seen = set()
+    deduped = []
+    for row in all_raw:
+        key = (row.get('player'), row.get('bookmaker'), row.get('market_key'), row.get('line'))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(row)
+    print(f"  ParlayAPI merged: {len(deduped)} unique rows (from {len(all_raw)} total)")
 
-    total_before = len(raw_rows)
-    rows = _map_parlay_api_rows(raw_rows, date_str)
+    rows = _map_parlay_api_rows(deduped, date_str)
     if not rows:
-        print(f"  ParlayAPI returned {total_before} total rows; 0 matched "
-              f"date window for {date_str}.")
+        print(f"  ParlayAPI: 0 rows matched date window for {date_str}.")
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
