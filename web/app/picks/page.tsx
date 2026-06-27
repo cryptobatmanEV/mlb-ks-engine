@@ -22,7 +22,7 @@ function fmtNum(v: number | null, decimals = 2): string {
 }
 
 function fmtPL(pl: number): string {
-  return `${pl >= 0 ? '+' : ''}${pl.toFixed(2)}u`;
+  return `${pl >= 0 ? '+' : ''}${pl.toFixed(3)}u`;
 }
 
 function fmtROI(roi: number): string {

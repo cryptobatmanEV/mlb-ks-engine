@@ -46,12 +46,12 @@ export function fmtEdge(edge: number | null): { text: string; color: string } {
 
 export function betPL(bet: Pick<TrackedBet, 'result' | 'odds' | 'stake_units'>): string {
   if (bet.result == null) return '—';
-  if (bet.result === 'push') return '0.00u';
-  if (bet.result === 'loss') return `-${bet.stake_units.toFixed(1)}u`;
+  if (bet.result === 'push') return '0.000u';
+  if (bet.result === 'loss') return `-${bet.stake_units.toFixed(3)}u`;
   if (bet.odds == null) return '—';
   const odds = bet.odds;
   const profit = odds > 0
     ? bet.stake_units * (odds / 100)
     : bet.stake_units * (100 / Math.abs(odds));
-  return `+${profit.toFixed(2)}u`;
+  return `+${profit.toFixed(3)}u`;
 }

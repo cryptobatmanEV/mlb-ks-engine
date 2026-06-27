@@ -21,7 +21,7 @@ type LeaderboardRow = {
 // ── Formatters ─────────────────────────────────────────────────────────────
 
 function fmtPL(profit: number) {
-  return `${profit >= 0 ? '+' : ''}${profit.toFixed(1)}u`;
+  return `${profit >= 0 ? '+' : ''}${profit.toFixed(3)}u`;
 }
 
 function fmtROI(roi: number) {

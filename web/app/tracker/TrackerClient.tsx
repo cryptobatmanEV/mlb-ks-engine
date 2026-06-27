@@ -29,7 +29,7 @@ type TrackerData = {
 
 function fmtPL(profit: number, settled: number) {
   if (settled === 0) return '—';
-  return `${profit >= 0 ? '+' : ''}${profit.toFixed(1)}u`;
+  return `${profit >= 0 ? '+' : ''}${profit.toFixed(3)}u`;
 }
 
 function fmtROI(profit: number, staked: number) {
