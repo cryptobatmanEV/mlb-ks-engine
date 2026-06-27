@@ -723,11 +723,7 @@ def join_prizepicks(pred_df, pp_df):
         p_over = df.loc[has_pp].apply(lambda r: model_prob_over(r['adj_k'], r['pp_line']), axis=1)
         diff = df.loc[has_pp, 'adj_k'] - df.loc[has_pp, 'pp_line']
 
-        # Same projection-direction override as book lines (see SIDE_MARGIN):
-        # only fall back to the raw p_over >= 0.5 comparison when adj_k is
-        # within SIDE_MARGIN of the PP line.
-        side_over = (p_over >= 0.5)
-        side_over = side_over.where(diff.abs() <= SIDE_MARGIN, diff > 0)
+        side_over = diff > 0
 
         df.loc[has_pp, 'pp_side'] = side_over.map({True: 'over', False: 'under'})
         df.loc[has_pp, 'model_prob_pp_line'] = p_over.where(side_over, 1.0 - p_over)
