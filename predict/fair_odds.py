@@ -70,6 +70,8 @@ OUT_DIR = 'data/outputs'
 
 PRIZEPICKS_URL = 'https://api.prizepicks.com/projections'
 PRIZEPICKS_PARAMS = {'league_id': 2, 'per_page': 250}  # league_id 2 = MLB
+
+UNDERDOG_URL = 'https://api.underdogfantasy.com/v1/over_under_lines'
 PRIZEPICKS_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -712,6 +714,67 @@ def fetch_prizepicks_strikeouts():
 
 
 PP_IMPLIED = 119.0 / 219.0  # PrizePicks standard pick'em pricing is -119 -> ~54.3%
+UD_IMPLIED = 115.0 / 215.0  # Underdog standard -115 pricing -> ~53.5%
+
+
+def fetch_underdog_strikeouts():
+    """Fetch MLB pitcher-strikeout standard lines from Underdog Fantasy."""
+    try:
+        r = requests.get(UNDERDOG_URL, timeout=20, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                          '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+        })
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  Underdog fetch failed: {e}")
+        return pd.DataFrame()
+
+    appearances = {a['id']: a for a in data.get('appearances', [])}
+    games       = {g['id']: g for g in data.get('games', [])}
+    solo_games  = {g['id']: g for g in data.get('solo_games', [])}
+    players     = {p['id']: p for p in data.get('players', [])}
+
+    rows = []
+    for line in data.get('over_under_lines', []):
+        ou       = line.get('over_under', {})
+        app_stat = ou.get('appearance_stat', {})
+
+        if app_stat.get('display_stat') != 'Strikeouts':
+            continue
+
+        options = line.get('options', [])
+        higher = next((o for o in options if o.get('choice') == 'higher'), None)
+        lower  = next((o for o in options if o.get('choice') == 'lower'), None)
+        if not higher or not lower:
+            continue
+        if str(higher.get('payout_multiplier', '')) != '1.0' or \
+           str(lower.get('payout_multiplier', '')) != '1.0':
+            continue
+
+        app_id = app_stat.get('appearance_id')
+        app    = appearances.get(app_id, {})
+        game   = games.get(app.get('match_id')) or solo_games.get(app.get('match_id'))
+        if not game or game.get('sport_id') != 'MLB':
+            continue
+
+        stat_value = line.get('stat_value')
+        if stat_value is None:
+            continue
+
+        player    = players.get(app.get('player_id'), {})
+        full_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
+        if not full_name:
+            continue
+
+        rows.append({'player_name_raw': full_name, 'ud_line': float(stat_value)})
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df['name_norm'] = df['player_name_raw'].apply(norm_name)
+        df = df.drop_duplicates(subset='name_norm')
+    return df
 
 
 def join_prizepicks(pred_df, pp_df):
@@ -749,6 +812,41 @@ def join_prizepicks(pred_df, pp_df):
     return df
 
 
+def join_underdog(pred_df, ud_df):
+    """
+    Match Underdog Fantasy lines onto predictions. Picks whichever side the
+    model favors and computes edge vs. Underdog's standard -115 pricing
+    (implied probability 115/215 ~= 53.5%) for that side.
+    """
+    df = pred_df.copy()
+    df['name_norm'] = df['pitcher_name'].apply(norm_name)
+
+    if ud_df.empty:
+        df['ud_line'] = None
+        df['ud_side'] = None
+        df['model_prob_ud_line'] = None
+        df['edge_ud'] = None
+        return df.drop(columns=['name_norm'])
+
+    df = df.merge(ud_df[['name_norm', 'ud_line']], on='name_norm', how='left').drop(columns=['name_norm'])
+    df['ud_side'] = None
+    df['model_prob_ud_line'] = None
+
+    has_ud = df['ud_line'].notna()
+    if has_ud.any():
+        p_over = df.loc[has_ud].apply(lambda r: model_prob_over(r['adj_k'], r['ud_line']), axis=1)
+        diff = df.loc[has_ud, 'adj_k'] - df.loc[has_ud, 'ud_line']
+
+        side_over = diff > 0
+
+        df.loc[has_ud, 'ud_side'] = side_over.map({True: 'over', False: 'under'})
+        df.loc[has_ud, 'model_prob_ud_line'] = p_over.where(side_over, 1.0 - p_over)
+
+    df['model_prob_ud_line'] = pd.to_numeric(df['model_prob_ud_line'], errors='coerce')
+    df['edge_ud'] = (df['model_prob_ud_line'] - UD_IMPLIED).where(has_ud).round(4)
+    return df
+
+
 # ── [5] Edge sanity check ───────────────────────────────────────────────────────
 
 def print_edge_sanity_check(df):
@@ -758,9 +856,11 @@ def print_edge_sanity_check(df):
 
     n_book = int(df['has_line'].sum())
     n_pp = int(df['pp_line'].notna().sum())
+    n_ud = int(df['ud_line'].notna().sum()) if 'ud_line' in df.columns else 0
     print(f"Pitchers projected:        {len(df)}")
     print(f"With sportsbook line:      {n_book}")
     print(f"With PrizePicks line:      {n_pp}")
+    print(f"With Underdog line:        {n_ud}")
 
     if n_book:
         adj_diff = (df.loc[df['has_line'] == 1, 'adj_k'] - df.loc[df['has_line'] == 1, 'pred_k']).dropna()
@@ -794,9 +894,21 @@ def print_edge_sanity_check(df):
         print("\nTop PrizePicks edges:")
         print(top.head(5).to_string(index=False))
 
-    if not n_book and not n_pp:
-        print("\nNo market lines available from either source -- cannot compute edge.")
-        print("Check ODDS_API_KEY in .env and PrizePicks availability.")
+    if n_ud:
+        e = df.loc[df['ud_line'].notna(), 'edge_ud'].dropna()
+        print(f"\nUnderdog edge (model_prob_for_side - 53.5% [-115]):")
+        print(f"  Min={e.min():+.1%}  Median={e.median():+.1%}  Mean={e.mean():+.1%}  Max={e.max():+.1%}")
+
+        cols = ['pitcher_name', 'team', 'pred_k', 'ud_side', 'ud_line', 'model_prob_ud_line', 'edge_ud']
+        top = df[df['ud_line'].notna()].nlargest(5, 'edge_ud', keep='all')[cols].copy()
+        top['model_prob_ud_line'] = top['model_prob_ud_line'].map('{:.1%}'.format)
+        top['edge_ud'] = top['edge_ud'].map(lambda x: f'{x:+.1%}')
+        print("\nTop Underdog edges:")
+        print(top.head(5).to_string(index=False))
+
+    if not n_book and not n_pp and not n_ud:
+        print("\nNo market lines available from any source -- cannot compute edge.")
+        print("Check ODDS_API_KEY in .env and PrizePicks/Underdog availability.")
 
 
 # ── [6] Save ──────────────────────────────────────────────────────────────────
@@ -812,6 +924,7 @@ def save_output(df, date_str):
         'has_line', 'book_line', 'book_side', 'best_book', 'best_odds', 'book_implied',
         'model_prob_book_line', 'edge_book',
         'pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp',
+        'ud_line', 'ud_side', 'model_prob_ud_line', 'edge_ud',
         'is_frozen',
         'book_markets',
         # Detail-card / context columns (passed through from daily_runner output)
@@ -887,16 +1000,23 @@ def run(date_str=None):
         else:
             print("\n[4] No matched events -- skipping sportsbook props.")
 
-    print("\n[5] Fetching PrizePicks projections...")
+    print("\n[5] Fetching DFS projections...")
     pp_df = fetch_prizepicks_strikeouts()
     if not pp_df.empty:
-        print(f"  {len(pp_df)} pitcher-strikeout projections found")
+        print(f"  PrizePicks: {len(pp_df)} pitcher-strikeout projections found")
     else:
-        print("  No PrizePicks pitcher-strikeout projections found.")
+        print("  PrizePicks: no pitcher-strikeout projections found.")
+
+    ud_df = fetch_underdog_strikeouts()
+    if not ud_df.empty:
+        print(f"  Underdog:   {len(ud_df)} pitcher-strikeout lines found")
+    else:
+        print("  Underdog:   no pitcher-strikeout lines found.")
 
     print("\n[6] Joining odds and computing edge...")
     result = join_sportsbook_odds(pred_df, odds_df)
     result = join_prizepicks(result, pp_df)
+    result = join_underdog(result, ud_df)
 
     # Identify games where SOME pitchers have sportsbook lines but others don't.
     # Those unpriced pitchers are NOT frozen by the freeze step below (which only
@@ -937,6 +1057,7 @@ def run(date_str=None):
                           'best_odds', 'book_implied', 'model_prob_book_line',
                           'edge_book', 'adj_k', 'book_markets']
             _PP_COLS   = ['pp_line', 'pp_side', 'model_prob_pp_line', 'edge_pp']
+            _UD_COLS   = ['ud_line', 'ud_side', 'model_prob_ud_line', 'edge_ud']
             _n_frozen  = 0
 
             _pb = _prev.loc[_prev['has_line'] == 1,
@@ -964,6 +1085,20 @@ def run(date_str=None):
                             result.loc[_pm, _c] = result.loc[_pm, f'{_c}_z']
                     result.loc[_pm, 'is_frozen'] = 1
                 result = result[[c for c in result.columns if not c.endswith('_z')]]
+
+            if 'ud_line' in _prev.columns:
+                _ud = _prev.loc[_prev['ud_line'].notna(),
+                                ['pitcher'] + [c for c in _UD_COLS if c in _prev.columns]]
+                if not _ud.empty:
+                    result = result.merge(_ud, on='pitcher', how='left', suffixes=('', '_z'))
+                    if 'ud_line_z' in result.columns:
+                        _um = result['ud_line'].isna() & result['ud_line_z'].notna()
+                        _n_frozen += int(_um.sum())
+                        for _c in _UD_COLS:
+                            if f'{_c}_z' in result.columns:
+                                result.loc[_um, _c] = result.loc[_um, f'{_c}_z']
+                        result.loc[_um, 'is_frozen'] = 1
+                    result = result[[c for c in result.columns if not c.endswith('_z')]]
 
             if _n_frozen:
                 print(f"\n  Preserved prior-run odds for {_n_frozen} pitcher(s) (market closed).")

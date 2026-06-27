@@ -40,6 +40,10 @@ export type Row = {
   pp_side: string | null;
   model_prob_pp_line: number | null;
   edge_pp: number | null;
+  ud_line: number | null;
+  ud_side: string | null;
+  model_prob_ud_line: number | null;
+  edge_ud: number | null;
   rest_days: number | null;
   prev_pitches: number | null;
   n_prior_starts: number | null;
@@ -336,6 +340,20 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                   <div style={STAT_LABEL}>PP EDGE</div>
                   {(() => {
                     const d = edgeDisplay(row.edge_pp, row.pp_line != null);
+                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
+                  })()}
+                </div>
+                {/* Underdog */}
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>UD LINE</div>
+                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+                    {row.ud_line != null ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}` : '—'}
+                  </div>
+                </div>
+                <div style={{ minWidth: '60px' }}>
+                  <div style={STAT_LABEL}>UD EDGE</div>
+                  {(() => {
+                    const d = edgeDisplay(row.edge_ud, row.ud_line != null);
                     return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
                   })()}
                 </div>
@@ -688,6 +706,8 @@ const COLS: ColDef[] = [
   { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right' },
   { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
   { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
+  { key: null,              label: 'UD LINE',   align: 'right' },
+  { key: null,              label: 'UD EDGE',   align: 'right' },
   { key: null,              label: 'MY ODDS',   align: 'right' },
   { key: null,              label: 'MY EDGE',   align: 'right' },
   { key: null,              label: '',          align: 'right' },
@@ -774,7 +794,7 @@ function buildPickReason(
       parts.push('model/market consensus');
     }
     if (edgeBonus > 0.1) {
-      const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
+      const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, row.edge_ud ?? 0) * 100).toFixed(1);
       parts.push(`positive market edge (+${edgePct}%)`);
     }
 
@@ -797,7 +817,7 @@ function buildPickReason(
     factors.push({ label: 'model/market consensus', weight: agreementBonus });
   }
   if (edgeBonus > 0.1) {
-    const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0) * 100).toFixed(1);
+    const edgePct = (Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, row.edge_ud ?? 0) * 100).toFixed(1);
     factors.push({ label: `positive market edge (+${edgePct}%)`, weight: edgeBonus });
   }
 
@@ -1020,7 +1040,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
   const evCount = useMemo(
     () => searchFiltered.filter(r =>
-      (r.edge_book != null && r.edge_book > 0) || (r.edge_pp != null && r.edge_pp > 0)
+      (r.edge_book != null && r.edge_book > 0) || (r.edge_pp != null && r.edge_pp > 0) || (r.edge_ud != null && r.edge_ud > 0)
     ).length,
     [searchFiltered]
   );
@@ -1028,7 +1048,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const filtered = useMemo(() => {
     if (!evOnly) return searchFiltered;
     return searchFiltered.filter(r =>
-      (r.edge_book != null && r.edge_book > 0) || (r.edge_pp != null && r.edge_pp > 0)
+      (r.edge_book != null && r.edge_book > 0) || (r.edge_pp != null && r.edge_pp > 0) || (r.edge_ud != null && r.edge_ud > 0)
     );
   }, [searchFiltered, evOnly]);
 
@@ -1097,7 +1117,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
       const modelProbBonus = row.model_prob_book_line * 4;
       const swstrBonus     = (row.p_swstr_pct_10 - AI_SWSTR_BASELINE) * 3;
-      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, 0) * 2;
+      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, row.edge_ud ?? 0, 0) * 2;
       const k9Bonus        = row.p_k_per9_10 != null ? (row.p_k_per9_10 - AI_K9_BASELINE) * 0.03 : 0;
       const agreementBonus = (1 - Math.abs(row.pred_k - adjK)) * 0.5;
       const oppKBonus      = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - AI_OPP_K_BASELINE) * 1.5 : 0;
@@ -1367,12 +1387,13 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
               const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
               const ppEdgeDisp    = edgeDisplay(row.edge_pp, row.pp_line != null);
+              const udEdgeDisp    = edgeDisplay(row.edge_ud, row.ud_line != null);
               const modelProbDisp = modelProbDisplay(row.model_prob_book_line, row.has_line);
               const result       = hasResults ? resultForRow(row) : null;
 
               const rawInput    = customLines[id] ?? '';
               const customOdds  = parseOddsInput(rawInput);
-              const modelProb   = row.model_prob_book_line ?? row.model_prob_pp_line;
+              const modelProb   = row.model_prob_book_line ?? row.model_prob_pp_line ?? row.model_prob_ud_line;
               const myOddsEdge  = customOdds != null && modelProb != null
                 ? modelProb - impliedProb(customOdds)
                 : null;
@@ -1519,6 +1540,18 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       {ppEdgeDisp.text}
                     </td>
 
+                    {/* UD LINE */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
+                      {row.ud_line != null
+                        ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}`
+                        : '—'}
+                    </td>
+
+                    {/* UD EDGE */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: udEdgeDisp.color, fontWeight: udEdgeDisp.weight }}>
+                      {udEdgeDisp.text}
+                    </td>
+
                     {/* MY ODDS */}
                     <td
                       style={{ padding: '6px 10px', textAlign: 'right' }}
@@ -1622,7 +1655,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
           const mRawInput    = customLines[id] ?? '';
           const mCustomOdds  = parseOddsInput(mRawInput);
-          const mModelProb   = row.model_prob_book_line ?? row.model_prob_pp_line;
+          const mModelProb   = row.model_prob_book_line ?? row.model_prob_pp_line ?? row.model_prob_ud_line;
           const mOddsEdge    = mCustomOdds != null && mModelProb != null
             ? mModelProb - impliedProb(mCustomOdds)
             : null;
