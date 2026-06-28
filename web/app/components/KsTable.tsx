@@ -3,21 +3,7 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import KsTrackButton from './KsTrackButton';
 import { useIframeIdentity, identityHeaders } from '../lib/iframeIdentity';
-
-// ── Sportsbook logo URLs (Clearbit logo API — reliable cross-domain source) ──
-
-const BOOK_LOGOS: Record<string, string> = {
-  pinnacle:   'https://logo.clearbit.com/pinnacle.com',
-  fanduel:    'https://logo.clearbit.com/fanduel.com',
-  draftkings: 'https://logo.clearbit.com/draftkings.com',
-  betrivers:  'https://logo.clearbit.com/betrivers.com',
-  novig:      'https://logo.clearbit.com/novig.us',
-  betmgm:     'https://logo.clearbit.com/betmgm.com',
-  caesars:    'https://logo.clearbit.com/caesars.com',
-  bet365:     'https://logo.clearbit.com/bet365.com',
-  prizepicks: 'https://logo.clearbit.com/prizepicks.com',
-  underdog:   'https://logo.clearbit.com/underdogfantasy.com',
-};
+import { BookLogo } from './BookLogos';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -195,18 +181,6 @@ const OPPONENT_STATS: { key: StatKey | 'n_prior_team_games'; label: string; fmt:
 
 // ── Detail card ────────────────────────────────────────────────────────────
 
-function BookLogo({ bookKey, size = 18 }: { bookKey: string; size?: number }) {
-  if (!BOOK_LOGOS[bookKey]) return null;
-  return (
-    <img
-      src={BOOK_LOGOS[bookKey]}
-      width={size}
-      height={size}
-      style={{ borderRadius: '50%', verticalAlign: 'middle', marginRight: 6 }}
-      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-    />
-  );
-}
 
 function fmtGameTime(iso: string | null): string {
   if (!iso) return '—';
@@ -257,115 +231,114 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
     fontWeight: 500,
   };
 
-  // ── Section 1: Market Odds ─────────────────────────────────────────────────
-  const marketOddsSection = (() => {
-    if (!row.has_line || row.book_markets == null) return null;
-    let markets: Record<string, { line?: number; over: number | null; under: number | null } | null> = {};
-    try { markets = JSON.parse(row.book_markets); } catch { return null; }
-    const BOOKS: { key: string; label: string }[] = [
-      { key: 'pinnacle',   label: 'Pinnacle'   },
-      { key: 'fanduel',    label: 'FanDuel'    },
-      { key: 'draftkings', label: 'DraftKings' },
-      { key: 'betrivers',  label: 'BetRivers'  },
-      { key: 'novig',      label: 'Novig'      },
-      { key: 'betmgm',     label: 'BetMGM'     },
-    ];
-    const favSide = row.book_side ?? 'over';
-    return (
-      <div style={CARD}>
-        <div style={SEC_LABEL}>MARKET ODDS</div>
-        <table style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '12px', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
-              <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
-              <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {BOOKS.map(({ key, label }) => {
-              const data = markets[key];
-              const bookLine = data?.line ?? null;
-              const isConsensus = bookLine != null && row.book_line != null && bookLine === row.book_line;
-              const isAltLine   = bookLine != null && !isConsensus;
-              const odds = data != null ? (favSide === 'under' ? data.under : data.over) : null;
-              const lineStr = bookLine != null ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
-              const lineColor = lineStr
-                ? (isConsensus ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.38)')
-                : 'rgba(255,255,255,0.2)';
-              return (
-                <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={{ padding: '8px 0', color: data != null ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <BookLogo bookKey={key} size={16} />
-                      {label}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '8px 20px 8px 0', color: lineColor }}>
-                    {lineStr ?? '—'}
-                    {isAltLine && <span style={{ marginLeft: '4px', fontSize: '8px', color: 'rgba(255,255,255,0.25)', letterSpacing: '1px' }}>ALT</span>}
-                  </td>
-                  <td style={{ textAlign: 'right', color: odds != null ? (odds > 0 ? 'var(--ev-green)' : 'rgba(255,255,255,0.9)') : 'rgba(255,255,255,0.25)' }}>
-                    {odds != null ? fmtOdds(odds) : '—'}
-                  </td>
+  // ── Section 1: Market Odds + DFS (combined) ───────────────────────────────
+  const BOOKS_LIST: { key: string; label: string }[] = [
+    { key: 'pinnacle',   label: 'Pinnacle'   },
+    { key: 'fanduel',    label: 'FanDuel'    },
+    { key: 'draftkings', label: 'DraftKings' },
+    { key: 'betrivers',  label: 'BetRivers'  },
+    { key: 'novig',      label: 'Novig'      },
+    { key: 'betmgm',     label: 'BetMGM'     },
+  ];
+  type BookMarket = { line?: number; over: number | null; under: number | null } | null;
+  let markets: Record<string, BookMarket> = {};
+  let hasMarkets = false;
+  if (row.has_line && row.book_markets != null) {
+    try { markets = JSON.parse(row.book_markets) as Record<string, BookMarket>; hasMarkets = true; } catch { /* stay empty */ }
+  }
+  const favSide = row.book_side ?? 'over';
+
+  const marketDfsSection = (
+    <div style={CARD}>
+      <div style={SEC_LABEL}>MARKET ODDS & DFS</div>
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+        {/* Sportsbook table — left column */}
+        {hasMarkets && (
+          <div style={{ flex: '2 1 240px' }}>
+            <table style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '12px', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
+                  <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
+                  <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  })();
-
-  // ── Section 2: DFS Lines ───────────────────────────────────────────────────
-  const dfsSection = (
-    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-      <div style={{ ...CARD, flex: 1, minWidth: '160px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '10px' }}>
-          <BookLogo bookKey="prizepicks" size={16} />
-          <span style={{ ...SEC_LABEL, marginBottom: 0 }}>PRIZEPICKS</span>
-        </div>
-        {row.pp_line != null ? (
-          <>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', marginBottom: '8px' }}>
-              {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
-            </div>
-            <div style={STAT_LABEL}>EDGE VS MODEL</div>
-            {(() => {
-              const d = edgeDisplay(row.edge_pp, true);
-              return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: d.weight, color: d.color, marginBottom: '8px' }}>{d.text}</div>;
-            })()}
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
-              Break-even: 53.5%
-            </div>
-          </>
-        ) : (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'rgba(255,255,255,0.25)' }}>No line available</div>
+              </thead>
+              <tbody>
+                {BOOKS_LIST.map(({ key, label }) => {
+                  const data = markets[key];
+                  const bookLine = data?.line ?? null;
+                  const isConsensus = bookLine != null && row.book_line != null && bookLine === row.book_line;
+                  const isAltLine   = bookLine != null && !isConsensus;
+                  // For consensus line pick the recommended side; for alt lines show whatever odds exist
+                  const odds = data != null
+                    ? (isAltLine ? (data.over ?? data.under) : (favSide === 'under' ? data.under : data.over))
+                    : null;
+                  const lineStr  = bookLine != null ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
+                  const lineColor = lineStr
+                    ? (isConsensus ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.38)')
+                    : 'rgba(255,255,255,0.2)';
+                  return (
+                    <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ padding: '7px 0', color: data != null ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <BookLogo bookKey={key} size={16} />
+                          {label}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '7px 16px 7px 0', color: lineColor, whiteSpace: 'nowrap' }}>
+                        {lineStr ?? '—'}
+                        {isAltLine && <span style={{ marginLeft: '4px', fontSize: '8px', color: 'rgba(255,255,255,0.25)', letterSpacing: '1px' }}>ALT</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', color: odds != null ? (odds > 0 ? 'var(--ev-green)' : 'rgba(255,255,255,0.9)') : 'rgba(255,255,255,0.25)' }}>
+                        {odds != null ? fmtOdds(odds) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
 
-      <div style={{ ...CARD, flex: 1, minWidth: '160px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '10px' }}>
-          <BookLogo bookKey="underdog" size={16} />
-          <span style={{ ...SEC_LABEL, marginBottom: 0 }}>UNDERDOG</span>
+        {/* DFS — right column (stacked PP + UD) */}
+        <div style={{ flex: '1 1 160px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {/* PrizePicks */}
+          <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '6px', padding: '10px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' }}>
+              <BookLogo bookKey="prizepicks" size={14} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '1.5px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>PrizePicks</span>
+            </div>
+            {row.pp_line != null ? (
+              <>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1.1, marginBottom: '5px' }}>
+                  {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
+                </div>
+                {(() => { const d = edgeDisplay(row.edge_pp, true); return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: d.weight, color: d.color }}>{d.text}</div>; })()}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'rgba(255,255,255,0.25)', marginTop: '3px' }}>Break-even 53.5%</div>
+              </>
+            ) : (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>No line</div>
+            )}
+          </div>
+          {/* Underdog */}
+          <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '6px', padding: '10px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' }}>
+              <BookLogo bookKey="underdog" size={14} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '1.5px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>Underdog</span>
+            </div>
+            {row.ud_line != null ? (
+              <>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1.1, marginBottom: '5px' }}>
+                  {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+                </div>
+                {(() => { const d = edgeDisplay(row.edge_ud, true); return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: d.weight, color: d.color }}>{d.text}</div>; })()}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'rgba(255,255,255,0.25)', marginTop: '3px' }}>Break-even 53.5%</div>
+              </>
+            ) : (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>No line</div>
+            )}
+          </div>
         </div>
-        {row.ud_line != null ? (
-          <>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', marginBottom: '8px' }}>
-              {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
-            </div>
-            <div style={STAT_LABEL}>EDGE VS MODEL</div>
-            {(() => {
-              const d = edgeDisplay(row.edge_ud, true);
-              return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: d.weight, color: d.color, marginBottom: '8px' }}>{d.text}</div>;
-            })()}
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
-              Break-even: 53.5%
-            </div>
-          </>
-        ) : (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'rgba(255,255,255,0.25)' }}>No line available</div>
-        )}
       </div>
     </div>
   );
@@ -478,8 +451,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
           </div>
         </div>
       )}
-      {marketOddsSection}
-      {dfsSection}
+      {marketDfsSection}
       {statsSection}
       {gameInfoBar}
     </div>
@@ -1561,6 +1533,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '16px', color: 'rgba(255,255,255,0.95)' }}>
                       {row.pitcher_name}
+                      {row.has_line && row.book_line != null && row.adj_k != null && Math.abs(row.adj_k - row.book_line) > 1.0 && (
+                        <span
+                          title="Adjusted projection differs from market line by more than 1K strikeout. Check lineup, weather, or recent news before betting."
+                          style={{ marginLeft: '5px', color: 'var(--ev-red)', fontSize: '14px', fontWeight: 700, cursor: 'help' }}
+                        >!</span>
+                      )}
                     </span>
                     {result && (
                       <span style={{
