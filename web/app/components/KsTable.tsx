@@ -171,28 +171,11 @@ const PITCHER_FORM_STATS: { key: StatKey; label: string; fmt: (v: number | null)
   { key: 'p_fp_strike_pct_10',     label: 'FP STRIKE%',     fmt: fmtPct1 },
 ];
 
-const PITCH_MIX_STATS: { key: keyof Row; label: string; fmt: (v: number | null) => string }[] = [
-  { key: 'p_fastball_velo_10', label: 'FB VELO',     fmt: v => v == null ? '—' : `${v.toFixed(1)} MPH` },
-  { key: 'p_fastball_pct_10',  label: 'FASTBALL%',   fmt: fmtPct1 },
-  { key: 'p_slider_pct_10',    label: 'SLIDER%',     fmt: fmtPct1 },
-  { key: 'p_curveball_pct_10', label: 'CURVEBALL%',  fmt: fmtPct1 },
-  { key: 'p_changeup_pct_10',  label: 'CHANGEUP%',   fmt: fmtPct1 },
-  { key: 'p_other_pct_10',     label: 'OTHER%',      fmt: fmtPct1 },
-  { key: 'p_avg_pitches_10',   label: 'AVG PITCHES', fmt: v => fmtNum(v, 1) },
-  { key: 'p_avg_ip_10',        label: 'AVG IP',      fmt: v => fmtNum(v, 1) },
-];
-
 const OPPONENT_STATS: { key: StatKey | 'n_prior_team_games'; label: string; fmt: (v: number | null) => string; color?: boolean }[] = [
   { key: 'opp_k_pct_15',     label: 'OPP K%',     fmt: fmtPct1, color: true },
   { key: 'opp_ops_15',       label: 'OPP OPS',    fmt: v => fmtNum(v, 3), color: true },
   { key: 'opp_chase_pct_15', label: 'OPP CHASE%', fmt: fmtPct1, color: true },
   { key: 'n_prior_team_games', label: 'GAMES',    fmt: fmtInt },
-];
-
-const CONTEXT_STATS: { key: keyof Row; label: string; fmt: (v: number | null) => string }[] = [
-  { key: 'rest_days',      label: 'REST DAYS',    fmt: fmtInt },
-  { key: 'prev_pitches',   label: 'PREV PITCHES', fmt: fmtInt },
-  { key: 'n_prior_starts', label: 'PRIOR STARTS', fmt: fmtInt },
 ];
 
 // ── Detail card ────────────────────────────────────────────────────────────
@@ -247,14 +230,18 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
 
   return (
     <div style={{
-      padding:    '14px 16px 16px 16px',
-      background: 'rgba(255,255,255,0.015)',
-      borderTop:  '1px solid var(--ev-border)',
+      padding:       '14px 16px 16px 16px',
+      background:    'rgba(255,255,255,0.015)',
+      borderTop:     '1px solid var(--ev-border)',
+      display:       'flex',
+      flexDirection: 'column',
+      gap:           '20px',
     }}>
+
+      {/* Row 1: MY ODDS (desktop) / MODEL & MARKET (mobile) | PITCHER FORM L10 | OPPONENT L15 */}
       <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
 
-        {/* MY ODDS — desktop expanded view (showMarket=false, myLine passed).
-            On mobile showMarket=true and MY ODDS lives inside MODEL & MARKET. */}
+        {/* MY ODDS — desktop only */}
         {!showMarket && myLine && (
           <>
             <div>
@@ -296,13 +283,12 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
           </>
         )}
 
-        {/* Model & market (mobile only — desktop shows these as table columns) */}
+        {/* MODEL & MARKET — mobile only */}
         {showMarket && (
           <>
             <div>
               <div style={SECTION_LABEL}>MODEL &amp; MARKET</div>
               <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                {/* Projections */}
                 <div style={{ minWidth: '60px' }}>
                   <div style={STAT_LABEL}>PROJ Ks</div>
                   <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
@@ -315,7 +301,6 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                     {(row.adj_k ?? row.pred_k).toFixed(2)}
                   </div>
                 </div>
-                {/* Book */}
                 <div style={{ minWidth: '60px' }}>
                   <div style={STAT_LABEL}>BOOK O/U</div>
                   <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
@@ -329,35 +314,6 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                     return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
                   })()}
                 </div>
-                {/* PrizePicks */}
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>PP LINE</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {row.pp_line != null ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}` : '—'}
-                  </div>
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>PP EDGE</div>
-                  {(() => {
-                    const d = edgeDisplay(row.edge_pp, row.pp_line != null);
-                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
-                  })()}
-                </div>
-                {/* Underdog */}
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>UD LINE</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {row.ud_line != null ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}` : '—'}
-                  </div>
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>UD EDGE</div>
-                  {(() => {
-                    const d = edgeDisplay(row.edge_ud, row.ud_line != null);
-                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
-                  })()}
-                </div>
-                {/* Custom odds (mobile expanded) */}
                 {myLine && (
                   <>
                     <div style={{ minWidth: '72px' }}>
@@ -394,7 +350,6 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                 )}
               </div>
             </div>
-
             {DIVIDER}
           </>
         )}
@@ -409,26 +364,6 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                 <div key={key} style={{ minWidth: '60px' }}>
                   <div style={STAT_LABEL}>{label}</div>
                   <div style={{ ...STAT_VAL, color: statColor(key, val) }}>
-                    {fmt(val)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {DIVIDER}
-
-        {/* Pitch mix L10 */}
-        <div>
-          <div style={SECTION_LABEL}>PITCH MIX L10</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            {PITCH_MIX_STATS.map(({ key, label, fmt }) => {
-              const val = row[key] as number | null;
-              return (
-                <div key={key} style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>{label}</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
                     {fmt(val)}
                   </div>
                 </div>
@@ -456,144 +391,120 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
             })}
           </div>
         </div>
-
-        {DIVIDER}
-
-        {/* Context */}
-        <div>
-          <div style={SECTION_LABEL}>CONTEXT</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            {CONTEXT_STATS.map(({ key, label, fmt }) => {
-              const val = row[key] as number | null;
-              return (
-                <div key={key} style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>{label}</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {fmt(val)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {DIVIDER}
-
-        {/* Park & weather */}
-        <div>
-          <div style={SECTION_LABEL}>PARK &amp; WEATHER</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>PARK K FACTOR</div>
-              <div style={{ ...STAT_VAL, color: statColor('park_k_factor', row.park_k_factor) }}>
-                {fmtInt(row.park_k_factor)}
-              </div>
-            </div>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>TEMP</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                {row.temp_f == null || isNaN(row.temp_f) ? '—' : `${Math.round(row.temp_f)}°F`}
-              </div>
-            </div>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>WIND</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                {row.is_dome ? 'DOME' : row.wind_speed == null ? '—' : `${Math.round(row.wind_speed)} MPH`}
-              </div>
-            </div>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>WIND FAVOR</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                {row.is_dome ? '—' : fmtNum(row.wind_favor, 1)}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {DIVIDER}
-
-        {/* Market odds per book */}
-        {row.has_line && row.book_markets != null && (() => {
-          let markets: Record<string, { line?: number; over: number | null; under: number | null } | null> = {};
-          try { markets = JSON.parse(row.book_markets); } catch { return null; }
-          const BOOKS: { key: string; label: string }[] = [
-            { key: 'pinnacle',   label: 'Pinnacle'   },
-            { key: 'fanduel',    label: 'FanDuel'    },
-            { key: 'draftkings', label: 'DraftKings' },
-            { key: 'betrivers',  label: 'BetRivers'  },
-            { key: 'novig',      label: 'Novig'      },
-            { key: 'betmgm',     label: 'BetMGM'     },
-          ];
-          const hasAny = BOOKS.some(b => markets[b.key] != null);
-          if (!hasAny) return null;
-          const favSide = row.book_side ?? 'over';
-          return (
-            <div>
-              <div style={SECTION_LABEL}>MARKET ODDS</div>
-              <table style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left', color: 'var(--ev-dim)', padding: '0 20px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
-                    <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 14px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
-                    <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 0 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {BOOKS.map(({ key, label }) => {
-                    const data = markets[key];
-                    const bookLine = data?.line ?? null;
-                    const odds = data != null
-                      ? (favSide === 'under' ? data.under : data.over)
-                      : null;
-                    const lineStr = bookLine != null
-                      ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}`
-                      : null;
-                    return (
-                      <tr key={key}>
-                        <td style={{ color: 'var(--ev-muted)', padding: '2px 20px 2px 0' }}>{label}</td>
-                        <td style={{ textAlign: 'right', padding: '2px 14px 2px 0', color: lineStr ? 'var(--ev-text)' : 'var(--ev-dim)' }}>
-                          {lineStr ?? '—'}
-                        </td>
-                        <td style={{ textAlign: 'right', color: odds != null ? 'var(--ev-green)' : 'var(--ev-dim)' }}>
-                          {odds != null ? fmtOdds(odds) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          );
-        })()}
-
-        {DIVIDER}
-
-        {/* Game info */}
-        <div>
-          <div style={SECTION_LABEL}>GAME INFO</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>VENUE</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                {row.venue ?? '—'}
-              </div>
-            </div>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>DAY/NIGHT</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)', textTransform: 'uppercase' }}>
-                {row.day_night ?? '—'}
-              </div>
-            </div>
-            <div style={{ minWidth: '60px' }}>
-              <div style={STAT_LABEL}>GAME TIME</div>
-              <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                {fmtGameTime(row.game_time)}
-              </div>
-            </div>
-          </div>
-        </div>
-
       </div>
+
+      {/* Row 2: MARKET ODDS */}
+      {row.has_line && row.book_markets != null && (() => {
+        let markets: Record<string, { line?: number; over: number | null; under: number | null } | null> = {};
+        try { markets = JSON.parse(row.book_markets); } catch { return null; }
+        const BOOKS: { key: string; label: string }[] = [
+          { key: 'pinnacle',   label: 'Pinnacle'   },
+          { key: 'fanduel',    label: 'FanDuel'    },
+          { key: 'draftkings', label: 'DraftKings' },
+          { key: 'betrivers',  label: 'BetRivers'  },
+          { key: 'novig',      label: 'Novig'      },
+          { key: 'betmgm',     label: 'BetMGM'     },
+        ];
+        const hasAny = BOOKS.some(b => markets[b.key] != null);
+        if (!hasAny) return null;
+        const favSide = row.book_side ?? 'over';
+        return (
+          <div>
+            <div style={SECTION_LABEL}>MARKET ODDS</div>
+            <table style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', color: 'var(--ev-dim)', padding: '0 20px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
+                  <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 14px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
+                  <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 0 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BOOKS.map(({ key, label }) => {
+                  const data = markets[key];
+                  const bookLine = data?.line ?? null;
+                  const odds = data != null
+                    ? (favSide === 'under' ? data.under : data.over)
+                    : null;
+                  const lineStr = bookLine != null
+                    ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}`
+                    : null;
+                  return (
+                    <tr key={key}>
+                      <td style={{ color: 'var(--ev-muted)', padding: '2px 20px 2px 0' }}>{label}</td>
+                      <td style={{ textAlign: 'right', padding: '2px 14px 2px 0', color: lineStr ? 'var(--ev-text)' : 'var(--ev-dim)' }}>
+                        {lineStr ?? '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', color: odds != null ? 'var(--ev-green)' : 'var(--ev-dim)' }}>
+                        {odds != null ? fmtOdds(odds) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
+      {/* Row 3: DFS lines (PrizePicks + Underdog) */}
+      <div>
+        <div style={SECTION_LABEL}>DFS LINES</div>
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>PP LINE</div>
+            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+              {row.pp_line != null ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}` : '—'}
+            </div>
+          </div>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>PP EDGE</div>
+            {(() => {
+              const d = edgeDisplay(row.edge_pp, row.pp_line != null);
+              return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
+            })()}
+          </div>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>UD LINE</div>
+            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+              {row.ud_line != null ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}` : '—'}
+            </div>
+          </div>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>UD EDGE</div>
+            {(() => {
+              const d = edgeDisplay(row.edge_ud, row.ud_line != null);
+              return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
+            })()}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 4: GAME INFO */}
+      <div>
+        <div style={SECTION_LABEL}>GAME INFO</div>
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>VENUE</div>
+            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+              {row.venue ?? '—'}
+            </div>
+          </div>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>DAY/NIGHT</div>
+            <div style={{ ...STAT_VAL, color: 'var(--ev-text)', textTransform: 'uppercase' }}>
+              {row.day_night ?? '—'}
+            </div>
+          </div>
+          <div style={{ minWidth: '60px' }}>
+            <div style={STAT_LABEL}>GAME TIME</div>
+            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
+              {fmtGameTime(row.game_time)}
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
