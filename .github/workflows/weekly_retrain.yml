@@ -91,22 +91,17 @@ jobs:
       - name: Retrain model
         run: python -m models.train
 
-      # 4. Commit the refreshed data and model files.
-      - name: Commit and push updates
+      # 4. Commit the refreshed model back to the repo.
+      #    Only models/saved/ is tracked in git — data/raw/ and data/processed/
+      #    are gitignored (large, regenerated from scratch each CI run via the
+      #    Statcast GHA cache and public MLB/pybaseball APIs). Attempting to
+      #    git add a gitignored path exits 1 and kills the step under -eo pipefail.
+      - name: Commit and push updated model
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/raw/statcast_pitching.parquet \
-                  data/raw/pitcher_game_logs.parquet \
-                  data/raw/lineups.parquet \
-                  data/raw/officials.parquet \
-                  data/processed/pitcher_features.parquet \
-                  data/processed/opponent_features.parquet \
-                  data/processed/lineup_features.parquet \
-                  data/processed/umpire_features.parquet \
-                  data/processed/umpire_lookup.parquet \
-                  data/processed/training_dataset.parquet \
-                  models/saved/ks_model.pkl
-          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git add models/saved/ks_model.pkl \
+                  models/saved/ks_model_features.json
+          git diff --cached --quiet && echo "Nothing to commit -- model unchanged" && exit 0
           git commit -m "Auto: weekly retrain $(date -u +'%Y-%m-%d')"
           git push

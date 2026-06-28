@@ -30,6 +30,7 @@ Output:
   models/saved/ks_model.pkl -- dict with keys: model, bias_correction, features
 """
 
+import json
 import os
 
 import joblib
@@ -253,7 +254,11 @@ def train():
             'bias_correction': bias_correction,
             'features': FEATURES,
         }, MODEL_PATH)
+        features_json = MODEL_PATH.replace('.pkl', '_features.json')
+        with open(features_json, 'w') as f:
+            json.dump(FEATURES, f, indent=2)
         print(f"\nSaved model + bias correction + feature list to {MODEL_PATH}")
+        print(f"Saved feature list to {features_json}")
     else:
         print(f"\n{MODEL_PATH} left unchanged.")
 

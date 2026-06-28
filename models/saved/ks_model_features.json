@@ -62,6 +62,8 @@
   "opp_ops_15",
   "opp_chase_pct_15",
   "n_prior_team_games",
+  "lineup_k_pct",
+  "ump_k_factor",
   "park_k_factor",
   "temp_f",
   "wind_speed",
