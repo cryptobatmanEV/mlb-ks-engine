@@ -4,6 +4,19 @@ import { useState, useEffect, useMemo, Fragment } from 'react';
 import KsTrackButton from './KsTrackButton';
 import { useIframeIdentity, identityHeaders } from '../lib/iframeIdentity';
 
+// ── Sportsbook logo URLs (favicon-based, 18px circles) ─────────────────────
+
+const BOOK_LOGOS: Record<string, string> = {
+  pinnacle:   'https://www.pinnacle.com/favicon.ico',
+  fanduel:    'https://www.fanduel.com/favicon.ico',
+  draftkings: 'https://www.draftkings.com/favicon.ico',
+  betrivers:  'https://www.betrivers.com/favicon.ico',
+  novig:      'https://www.novig.us/favicon.ico',
+  betmgm:     'https://www.betmgm.com/favicon.ico',
+  prizepicks: 'https://www.prizepicks.com/favicon.ico',
+  underdog:   'https://underdogfantasy.com/favicon.ico',
+};
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type Row = {
@@ -180,6 +193,19 @@ const OPPONENT_STATS: { key: StatKey | 'n_prior_team_games'; label: string; fmt:
 
 // ── Detail card ────────────────────────────────────────────────────────────
 
+function BookLogo({ bookKey, size = 18 }: { bookKey: string; size?: number }) {
+  if (!BOOK_LOGOS[bookKey]) return null;
+  return (
+    <img
+      src={BOOK_LOGOS[bookKey]}
+      width={size}
+      height={size}
+      style={{ borderRadius: '50%', verticalAlign: 'middle', marginRight: 6 }}
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+    />
+  );
+}
+
 function fmtGameTime(iso: string | null): string {
   if (!iso) return '—';
   try {
@@ -200,20 +226,27 @@ type MyLineProps = {
 
 function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolean; myLine?: MyLineProps }) {
   const myEdgeDisp = myLine ? edgeDisplay(myLine.edge, myLine.odds != null) : null;
-  const SECTION_LABEL: React.CSSProperties = {
+
+  const CARD: React.CSSProperties = {
+    background:   '#111416',
+    borderRadius: '8px',
+    border:       '1px solid rgba(255,255,255,0.06)',
+    padding:      '14px 16px',
+  };
+  const SEC_LABEL: React.CSSProperties = {
     fontFamily:    'var(--font-mono)',
     fontSize:      '9px',
-    letterSpacing: '2.5px',
+    letterSpacing: '2px',
     textTransform: 'uppercase',
-    color:         'var(--ev-dim)',
-    marginBottom:  '10px',
+    color:         'rgba(255,255,255,0.4)',
+    marginBottom:  '12px',
   };
   const STAT_LABEL: React.CSSProperties = {
     fontFamily:    'var(--font-mono)',
     fontSize:      '9px',
     letterSpacing: '1.5px',
     textTransform: 'uppercase',
-    color:         'var(--ev-dim)',
+    color:         'rgba(255,255,255,0.4)',
     marginBottom:  '4px',
   };
   const STAT_VAL: React.CSSProperties = {
@@ -221,290 +254,231 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
     fontSize:   '13px',
     fontWeight: 500,
   };
-  const DIVIDER = (
-    <div style={{
-      width: '1px', background: 'var(--ev-border)',
-      alignSelf: 'stretch', margin: '0 4px',
-    }} />
+
+  // ── Section 1: Market Odds ─────────────────────────────────────────────────
+  const marketOddsSection = (() => {
+    if (!row.has_line || row.book_markets == null) return null;
+    let markets: Record<string, { line?: number; over: number | null; under: number | null } | null> = {};
+    try { markets = JSON.parse(row.book_markets); } catch { return null; }
+    const BOOKS: { key: string; label: string }[] = [
+      { key: 'pinnacle',   label: 'Pinnacle'   },
+      { key: 'fanduel',    label: 'FanDuel'    },
+      { key: 'draftkings', label: 'DraftKings' },
+      { key: 'betrivers',  label: 'BetRivers'  },
+      { key: 'novig',      label: 'Novig'      },
+      { key: 'betmgm',     label: 'BetMGM'     },
+    ];
+    if (!BOOKS.some(b => markets[b.key] != null)) return null;
+    const favSide = row.book_side ?? 'over';
+    return (
+      <div style={CARD}>
+        <div style={SEC_LABEL}>MARKET ODDS</div>
+        <table style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '12px', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
+              <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
+              <th style={{ textAlign: 'right', color: 'rgba(255,255,255,0.35)', padding: '0 0 8px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {BOOKS.map(({ key, label }) => {
+              const data = markets[key];
+              const bookLine = data?.line ?? null;
+              const odds = data != null ? (favSide === 'under' ? data.under : data.over) : null;
+              const lineStr = bookLine != null ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
+              return (
+                <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td style={{ padding: '8px 0', color: data != null ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)' }}>
+                    <BookLogo bookKey={key} size={16} />
+                    {label}
+                  </td>
+                  <td style={{ textAlign: 'right', padding: '8px 20px 8px 0', color: lineStr ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)' }}>
+                    {lineStr ?? '—'}
+                  </td>
+                  <td style={{ textAlign: 'right', color: odds != null ? (odds > 0 ? 'var(--ev-green)' : 'rgba(255,255,255,0.9)') : 'rgba(255,255,255,0.25)' }}>
+                    {odds != null ? fmtOdds(odds) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  })();
+
+  // ── Section 2: DFS Lines ───────────────────────────────────────────────────
+  const dfsSection = (
+    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      <div style={{ ...CARD, flex: 1, minWidth: '160px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '10px' }}>
+          <BookLogo bookKey="prizepicks" size={16} />
+          <span style={{ ...SEC_LABEL, marginBottom: 0 }}>PRIZEPICKS</span>
+        </div>
+        {row.pp_line != null ? (
+          <>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', marginBottom: '8px' }}>
+              {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
+            </div>
+            <div style={STAT_LABEL}>EDGE VS MODEL</div>
+            {(() => {
+              const d = edgeDisplay(row.edge_pp, true);
+              return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: d.weight, color: d.color, marginBottom: '8px' }}>{d.text}</div>;
+            })()}
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
+              Break-even: 53.5%
+            </div>
+          </>
+        ) : (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'rgba(255,255,255,0.25)' }}>No line available</div>
+        )}
+      </div>
+
+      <div style={{ ...CARD, flex: 1, minWidth: '160px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '10px' }}>
+          <BookLogo bookKey="underdog" size={16} />
+          <span style={{ ...SEC_LABEL, marginBottom: 0 }}>UNDERDOG</span>
+        </div>
+        {row.ud_line != null ? (
+          <>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', marginBottom: '8px' }}>
+              {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+            </div>
+            <div style={STAT_LABEL}>EDGE VS MODEL</div>
+            {(() => {
+              const d = edgeDisplay(row.edge_ud, true);
+              return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: d.weight, color: d.color, marginBottom: '8px' }}>{d.text}</div>;
+            })()}
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
+              Break-even: 53.5%
+            </div>
+          </>
+        ) : (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'rgba(255,255,255,0.25)' }}>No line available</div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Section 3: Advanced Stats + MY ODDS ────────────────────────────────────
+  const statsSection = (
+    <div style={CARD}>
+      {myLine && (
+        <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div>
+              <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY ODDS</div>
+              <input
+                type="text"
+                placeholder="-110"
+                value={myLine.raw}
+                onChange={e => myLine.onChange(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width:        '80px',
+                  background:   'rgba(255,255,255,0.06)',
+                  border:       `1px solid ${myLine.raw.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                  borderRadius: '4px',
+                  color:        myLine.raw.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.35)',
+                  fontFamily:   'var(--font-mono)',
+                  fontSize:     '13px',
+                  fontWeight:   500,
+                  padding:      '5px 9px',
+                  textAlign:    'right',
+                  outline:      'none',
+                }}
+              />
+            </div>
+            {myEdgeDisp && (
+              <div>
+                <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY EDGE</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: myEdgeDisp.weight, color: myEdgeDisp.color }}>
+                  {myEdgeDisp.text}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 200px' }}>
+          <div style={SEC_LABEL}>PITCHER FORM L10</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {PITCHER_FORM_STATS.map(({ key, label, fmt }) => {
+              const val = row[key] as number | null;
+              return (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '1px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>{label}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: statColor(key, val) }}>{fmt(val)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{ flex: '1 1 160px' }}>
+          <div style={SEC_LABEL}>OPPONENT L15</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {OPPONENT_STATS.map(({ key, label, fmt, color }) => {
+              const val = row[key as keyof Row] as number | null;
+              return (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '1px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>{label}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: color ? statColor(key as StatKey, val) : 'rgba(255,255,255,0.85)' }}>{fmt(val)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Game info bar ──────────────────────────────────────────────────────────
+  const gameInfoBar = (
+    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>
+      {row.venue && <span>{row.venue}</span>}
+      {row.day_night && <span style={{ textTransform: 'uppercase' }}>{row.day_night}</span>}
+      <span>{fmtGameTime(row.game_time)}</span>
+    </div>
   );
 
   return (
     <div style={{
-      padding:       '14px 16px 16px 16px',
-      background:    'rgba(255,255,255,0.015)',
-      borderTop:     '1px solid var(--ev-border)',
+      padding:       '16px',
+      background:    'rgba(255,255,255,0.012)',
+      borderTop:     '1px solid rgba(255,255,255,0.06)',
       display:       'flex',
       flexDirection: 'column',
-      gap:           '20px',
+      gap:           '12px',
     }}>
-
-      {/* Row 1: MY ODDS (desktop) / MODEL & MARKET (mobile) | PITCHER FORM L10 | OPPONENT L15 */}
-      <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
-
-        {/* MY ODDS — desktop only */}
-        {!showMarket && myLine && (
-          <>
-            <div>
-              <div style={SECTION_LABEL}>MY ODDS</div>
-              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                <div style={{ minWidth: '72px' }}>
-                  <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY ODDS</div>
-                  <input
-                    type="text"
-                    placeholder="-110"
-                    value={myLine.raw}
-                    onChange={e => myLine.onChange(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                    style={{
-                      width:        '72px',
-                      background:   'rgba(255,255,255,0.06)',
-                      border:       `1px solid ${myLine.raw.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.15)'}`,
-                      borderRadius: '2px',
-                      color:        myLine.raw.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.4)',
-                      fontFamily:   'var(--font-mono)',
-                      fontSize:     '13px',
-                      fontWeight:   500,
-                      padding:      '3px 7px',
-                      textAlign:    'right',
-                      outline:      'none',
-                      marginTop:    '2px',
-                    }}
-                  />
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY EDGE</div>
-                  <div style={{ ...STAT_VAL, color: myEdgeDisp!.color, fontWeight: myEdgeDisp!.weight }}>
-                    {myEdgeDisp!.text}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {DIVIDER}
-          </>
-        )}
-
-        {/* MODEL & MARKET — mobile only */}
-        {showMarket && (
-          <>
-            <div>
-              <div style={SECTION_LABEL}>MODEL &amp; MARKET</div>
-              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>PROJ Ks</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {row.pred_k.toFixed(2)}
-                  </div>
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>ADJ Ks</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {(row.adj_k ?? row.pred_k).toFixed(2)}
-                  </div>
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>BOOK O/U</div>
-                  <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-                    {row.has_line ? `${row.book_side === 'under' ? 'U' : 'O'} ${row.book_line}` : '—'}
-                  </div>
-                </div>
-                <div style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>BOOK EDGE</div>
-                  {(() => {
-                    const d = edgeDisplay(row.edge_book, row.has_line);
-                    return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
-                  })()}
-                </div>
-                {myLine && (
-                  <>
-                    <div style={{ minWidth: '72px' }}>
-                      <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY ODDS</div>
-                      <input
-                        type="text"
-                        placeholder="-110"
-                        value={myLine.raw}
-                        onChange={e => myLine.onChange(e.target.value)}
-                        onClick={e => e.stopPropagation()}
-                        style={{
-                          width:        '72px',
-                          background:   'rgba(255,255,255,0.06)',
-                          border:       `1px solid ${myLine.raw.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '2px',
-                          color:        myLine.raw.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.4)',
-                          fontFamily:   'var(--font-mono)',
-                          fontSize:     '13px',
-                          fontWeight:   500,
-                          padding:      '3px 7px',
-                          textAlign:    'right',
-                          outline:      'none',
-                          marginTop:    '2px',
-                        }}
-                      />
-                    </div>
-                    <div style={{ minWidth: '60px' }}>
-                      <div style={{ ...STAT_LABEL, color: 'var(--ev-gold)' }}>MY EDGE</div>
-                      <div style={{ ...STAT_VAL, color: myEdgeDisp!.color, fontWeight: myEdgeDisp!.weight }}>
-                        {myEdgeDisp!.text}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            {DIVIDER}
-          </>
-        )}
-
-        {/* Pitcher form L10 */}
-        <div>
-          <div style={SECTION_LABEL}>PITCHER FORM L10</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            {PITCHER_FORM_STATS.map(({ key, label, fmt }) => {
-              const val = row[key] as number | null;
-              return (
-                <div key={key} style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>{label}</div>
-                  <div style={{ ...STAT_VAL, color: statColor(key, val) }}>
-                    {fmt(val)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {DIVIDER}
-
-        {/* Opponent L15 */}
-        <div>
-          <div style={SECTION_LABEL}>OPPONENT L15</div>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            {OPPONENT_STATS.map(({ key, label, fmt, color }) => {
-              const val = row[key as keyof Row] as number | null;
-              return (
-                <div key={key} style={{ minWidth: '60px' }}>
-                  <div style={STAT_LABEL}>{label}</div>
-                  <div style={{ ...STAT_VAL, color: color ? statColor(key as StatKey, val) : 'var(--ev-text)' }}>
-                    {fmt(val)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: MARKET ODDS */}
-      {row.has_line && row.book_markets != null && (() => {
-        let markets: Record<string, { line?: number; over: number | null; under: number | null } | null> = {};
-        try { markets = JSON.parse(row.book_markets); } catch { return null; }
-        const BOOKS: { key: string; label: string }[] = [
-          { key: 'pinnacle',   label: 'Pinnacle'   },
-          { key: 'fanduel',    label: 'FanDuel'    },
-          { key: 'draftkings', label: 'DraftKings' },
-          { key: 'betrivers',  label: 'BetRivers'  },
-          { key: 'novig',      label: 'Novig'      },
-          { key: 'betmgm',     label: 'BetMGM'     },
-        ];
-        const hasAny = BOOKS.some(b => markets[b.key] != null);
-        if (!hasAny) return null;
-        const favSide = row.book_side ?? 'over';
-        return (
+      {/* Mobile summary row (proj/adj/book) */}
+      {showMarket && (
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div>
-            <div style={SECTION_LABEL}>MARKET ODDS</div>
-            <table style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', color: 'var(--ev-dim)', padding: '0 20px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>BOOK</th>
-                  <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 14px 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>LINE</th>
-                  <th style={{ textAlign: 'right', color: 'var(--ev-dim)', padding: '0 0 4px 0', fontSize: '9px', letterSpacing: '1.5px', fontWeight: 400 }}>ODDS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {BOOKS.map(({ key, label }) => {
-                  const data = markets[key];
-                  const bookLine = data?.line ?? null;
-                  const odds = data != null
-                    ? (favSide === 'under' ? data.under : data.over)
-                    : null;
-                  const lineStr = bookLine != null
-                    ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}`
-                    : null;
-                  return (
-                    <tr key={key}>
-                      <td style={{ color: 'var(--ev-muted)', padding: '2px 20px 2px 0' }}>{label}</td>
-                      <td style={{ textAlign: 'right', padding: '2px 14px 2px 0', color: lineStr ? 'var(--ev-text)' : 'var(--ev-dim)' }}>
-                        {lineStr ?? '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', color: odds != null ? 'var(--ev-green)' : 'var(--ev-dim)' }}>
-                        {odds != null ? fmtOdds(odds) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div style={STAT_LABEL}>PROJ Ks</div>
+            <div style={{ ...STAT_VAL, color: 'rgba(255,255,255,0.9)' }}>{row.pred_k.toFixed(2)}</div>
           </div>
-        );
-      })()}
-
-      {/* Row 3: DFS lines (PrizePicks + Underdog) */}
-      <div>
-        <div style={SECTION_LABEL}>DFS LINES</div>
-        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>PP LINE</div>
-            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-              {row.pp_line != null ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}` : '—'}
+          <div>
+            <div style={STAT_LABEL}>ADJ Ks</div>
+            <div style={{ ...STAT_VAL, color: 'rgba(255,255,255,0.9)' }}>{(row.adj_k ?? row.pred_k).toFixed(2)}</div>
+          </div>
+          <div>
+            <div style={STAT_LABEL}>BOOK O/U</div>
+            <div style={{ ...STAT_VAL, color: 'rgba(255,255,255,0.9)' }}>
+              {row.has_line ? `${row.book_side === 'under' ? 'U' : 'O'} ${row.book_line}` : '—'}
             </div>
           </div>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>PP EDGE</div>
-            {(() => {
-              const d = edgeDisplay(row.edge_pp, row.pp_line != null);
-              return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
-            })()}
-          </div>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>UD LINE</div>
-            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-              {row.ud_line != null ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}` : '—'}
-            </div>
-          </div>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>UD EDGE</div>
-            {(() => {
-              const d = edgeDisplay(row.edge_ud, row.ud_line != null);
-              return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>;
-            })()}
+          <div>
+            <div style={STAT_LABEL}>BOOK EDGE</div>
+            {(() => { const d = edgeDisplay(row.edge_book, row.has_line); return <div style={{ ...STAT_VAL, color: d.color, fontWeight: d.weight }}>{d.text}</div>; })()}
           </div>
         </div>
-      </div>
-
-      {/* Row 4: GAME INFO */}
-      <div>
-        <div style={SECTION_LABEL}>GAME INFO</div>
-        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>VENUE</div>
-            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-              {row.venue ?? '—'}
-            </div>
-          </div>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>DAY/NIGHT</div>
-            <div style={{ ...STAT_VAL, color: 'var(--ev-text)', textTransform: 'uppercase' }}>
-              {row.day_night ?? '—'}
-            </div>
-          </div>
-          <div style={{ minWidth: '60px' }}>
-            <div style={STAT_LABEL}>GAME TIME</div>
-            <div style={{ ...STAT_VAL, color: 'var(--ev-text)' }}>
-              {fmtGameTime(row.game_time)}
-            </div>
-          </div>
-        </div>
-      </div>
-
+      )}
+      {marketOddsSection}
+      {dfsSection}
+      {statsSection}
+      {gameInfoBar}
     </div>
   );
 }
@@ -606,22 +580,19 @@ const STICKY_BG = '#0a0d0f';
 type ColDef = { key: SortKey | null; label: string; align: 'left' | 'right'; sticky?: boolean; hide?: 'lvl1' | 'lvl2' };
 
 const COLS: ColDef[] = [
-  { key: 'pitcher_name',    label: 'PITCHER',   align: 'left',  sticky: true },
-  { key: 'team',            label: 'TEAM',      align: 'left'  },
-  { key: 'opp_team',        label: 'OPP',       align: 'left'  },
-  { key: 'pred_k',          label: 'PROJ Ks',   align: 'right' },
-  { key: 'adj_k',           label: 'ADJ Ks',    align: 'right' },
-  { key: 'book_line',       label: 'BOOK O/U',  align: 'right' },
-  { key: 'edge_book',       label: 'BOOK EDGE', align: 'right' },
+  { key: 'pitcher_name',         label: 'PITCHER',    align: 'left',  sticky: true },
+  { key: 'team',                 label: 'TEAM',       align: 'left'  },
+  { key: 'opp_team',             label: 'OPP',        align: 'left'  },
+  { key: 'pred_k',               label: 'PROJ KS',    align: 'right' },
+  { key: 'book_line',            label: 'BOOK O/U',   align: 'right' },
+  { key: 'edge_book',            label: 'BOOK EDGE',  align: 'right' },
   { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
-  { key: 'p_swstr_pct_10',  label: 'SWSTR%',    align: 'right' },
-  { key: 'pp_line',         label: 'PP LINE',   align: 'right' },
-  { key: 'edge_pp',         label: 'PP EDGE',   align: 'right' },
-  { key: null,              label: 'UD LINE',   align: 'right' },
-  { key: null,              label: 'UD EDGE',   align: 'right' },
-  { key: null,              label: 'MY ODDS',   align: 'right' },
-  { key: null,              label: 'MY EDGE',   align: 'right' },
-  { key: null,              label: '',          align: 'right' },
+  { key: 'p_swstr_pct_10',       label: 'SWSTR%',     align: 'right' },
+  { key: 'pp_line',              label: 'PP',         align: 'right' },
+  { key: null,                   label: 'UD',         align: 'right' },
+  { key: null,                   label: 'MY ODDS',    align: 'right' },
+  { key: null,                   label: 'MY EDGE',    align: 'right' },
+  { key: null,                   label: '',           align: 'right' },
 ];
 
 // K/9 L10, OPP K%, PARK, and GAME TIME are not shown as table columns --
@@ -1050,7 +1021,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const cols = useMemo(() => {
     if (!hasResults) return COLS;
     const out = [...COLS];
-    out.splice(out.findIndex(c => c.key === 'adj_k') + 1, 0, ACTUAL_K_COL);
+    out.splice(out.findIndex(c => c.key === 'pred_k') + 1, 0, ACTUAL_K_COL);
     return out;
   }, [hasResults]);
 
@@ -1297,8 +1268,6 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               const isExpanded = expandedRow === id;
 
               const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
-              const ppEdgeDisp    = edgeDisplay(row.edge_pp, row.pp_line != null);
-              const udEdgeDisp    = edgeDisplay(row.edge_ud, row.ud_line != null);
               const modelProbDisp = modelProbDisplay(row.model_prob_book_line, row.has_line);
               const result       = hasResults ? resultForRow(row) : null;
 
@@ -1338,29 +1307,31 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     className="pred-row"
                     onClick={() => toggleExpand(id)}
                     style={{
-                      borderBottom: isExpanded ? 'none' : '1px solid var(--ev-border)',
-                      cursor: 'pointer',
-                      background: isExpanded ? 'rgba(255,255,255,0.03)' : undefined,
+                      height:       '52px',
+                      borderBottom: isExpanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+                      cursor:       'pointer',
+                      background:   isExpanded ? 'rgba(255,255,255,0.03)' : undefined,
                     }}
                   >
 
                     {/* PITCHER — sticky */}
                     <td style={{
                       padding:     'var(--ks-pad-y) var(--ks-pad-x)',
-                      color:       'var(--ev-text)',
-                      fontWeight:  500,
+                      color:       'rgba(255,255,255,0.95)',
+                      fontWeight:  600,
+                      fontFamily:  'var(--font-syne)',
                       position:    'sticky',
                       left:        0,
                       zIndex:      1,
                       background:  isExpanded ? 'rgba(20,24,28,1)' : STICKY_BG,
-                      borderRight: '1px solid var(--ev-border)',
+                      borderRight: '1px solid rgba(255,255,255,0.06)',
                       whiteSpace:  'nowrap',
                     }}>
                       <span style={{
                         display:     'inline-block',
                         marginRight: '6px',
                         fontSize:    '9px',
-                        color:       isExpanded ? 'var(--ev-green)' : 'var(--ev-dim)',
+                        color:       isExpanded ? 'var(--ev-green)' : 'rgba(255,255,255,0.2)',
                         transition:  'transform 0.15s',
                         transform:   isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                       }}>▶</span>
@@ -1377,90 +1348,81 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* TEAM */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'var(--ev-muted)' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'rgba(255,255,255,0.6)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
                       {row.team}
                     </td>
 
                     {/* OPP */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'var(--ev-dim)', fontSize: '11px' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', color: 'rgba(255,255,255,0.38)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
                       {row.is_home ? 'vs ' : '@ '}{row.opp_team}
                     </td>
 
-                    {/* PROJ Ks */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
+                    {/* PROJ KS */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'rgba(255,255,255,0.95)', fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '14px' }}>
                       {row.pred_k.toFixed(2)}
-                    </td>
-
-                    {/* ADJ Ks */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
-                      {row.adj_k != null ? row.adj_k.toFixed(2) : row.pred_k.toFixed(2)}
                     </td>
 
                     {/* ACTUAL Ks */}
                     {hasResults && (
-                      <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)', fontWeight: 500 }}>
-                        {row.actual_k != null ? row.actual_k : <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>}
+                      <td className="ks-col-lvl1" style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'rgba(255,255,255,0.9)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        {row.actual_k != null ? row.actual_k : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '10px' }}>—</span>}
                       </td>
                     )}
 
-                    {/* BOOK O/U */}
+                    {/* BOOK O/U — line prominent, book logo + odds below */}
                     <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
                       {row.has_line ? (
-                        <>
-                          <span style={{ color: 'var(--ev-text)' }}>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.95)', lineHeight: 1.2 }}>
                             {row.book_side === 'under' ? 'U' : 'O'} {row.book_line}
-                          </span>
-                          <div style={{ fontSize: '10px', color: 'var(--ev-blue)', marginTop: '2px' }}>
-                            {fmtOdds(row.best_odds)}
-                            {row.best_book && (
-                              <span style={{ color: 'rgba(255,255,255,0.18)', marginLeft: '4px' }}>
-                                {row.best_book}
-                              </span>
-                            )}
                           </div>
-                        </>
-                      ) : (
-                        <span style={{ color: 'var(--ev-dim)', fontSize: '10px' }}>—</span>
-                      )}
+                          {row.best_book && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px', marginTop: '3px' }}>
+                              <BookLogo bookKey={row.best_book.toLowerCase()} size={12} />
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>{fmtOdds(row.best_odds)}</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>—</span>}
                     </td>
 
                     {/* BOOK EDGE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '13px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                       {bookEdgeDisp.text}
                     </td>
 
                     {/* MODEL PROB */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '13px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
                       {modelProbDisp.text}
                     </td>
 
                     {/* SWSTR% */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: statColor('p_swstr_pct_10', row.p_swstr_pct_10) }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '13px', color: statColor('p_swstr_pct_10', row.p_swstr_pct_10) }}>
                       {fmtPct1(row.p_swstr_pct_10)}
                     </td>
 
-                    {/* PP LINE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
-                      {row.pp_line != null
-                        ? `${row.pp_side === 'under' ? 'U' : 'O'} ${row.pp_line}`
-                        : '—'}
+                    {/* PP — logo + line */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
+                      {row.pp_line != null ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                          <BookLogo bookKey="prizepicks" size={14} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'rgba(255,255,255,0.85)' }}>
+                            {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
+                          </span>
+                        </div>
+                      ) : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>—</span>}
                     </td>
 
-                    {/* PP EDGE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: ppEdgeDisp.color, fontWeight: ppEdgeDisp.weight }}>
-                      {ppEdgeDisp.text}
-                    </td>
-
-                    {/* UD LINE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'var(--ev-text)' }}>
-                      {row.ud_line != null
-                        ? `${row.ud_side === 'under' ? 'U' : 'O'} ${row.ud_line}`
-                        : '—'}
-                    </td>
-
-                    {/* UD EDGE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: udEdgeDisp.color, fontWeight: udEdgeDisp.weight }}>
-                      {udEdgeDisp.text}
+                    {/* UD — logo + line */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
+                      {row.ud_line != null ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                          <BookLogo bookKey="underdog" size={14} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'rgba(255,255,255,0.85)' }}>
+                            {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+                          </span>
+                        </div>
+                      ) : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>—</span>}
                     </td>
 
                     {/* MY ODDS */}
@@ -1476,12 +1438,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         style={{
                           width:        '72px',
                           background:   'rgba(255,255,255,0.06)',
-                          border:       `1px solid ${rawInput.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '2px',
-                          color:        rawInput.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.4)',
+                          border:       `1px solid ${rawInput.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: '4px',
+                          color:        rawInput.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.3)',
                           fontFamily:   'var(--font-mono)',
                           fontSize:     '11px',
-                          padding:      '3px 7px',
+                          padding:      '4px 7px',
                           textAlign:    'right',
                           outline:      'none',
                         }}
@@ -1489,7 +1451,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* MY EDGE */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '13px', color: myEdgeDisp.color, fontWeight: myEdgeDisp.weight }}>
                       {myEdgeDisp.text}
                     </td>
 
@@ -1564,72 +1526,72 @@ export default function KsTable({ rows }: { rows: Row[] }) {
           const playLine = row.has_line ? row.book_line : row.pp_line;
           const playSide = row.has_line ? row.book_side : row.pp_side;
 
-          const mRawInput    = customLines[id] ?? '';
-          const mCustomOdds  = parseOddsInput(mRawInput);
-          const mModelProb   = row.model_prob_book_line ?? row.model_prob_pp_line ?? row.model_prob_ud_line;
-          const mOddsEdge    = mCustomOdds != null && mModelProb != null
+          const mRawInput   = customLines[id] ?? '';
+          const mCustomOdds = parseOddsInput(mRawInput);
+          const mModelProb  = row.model_prob_book_line ?? row.model_prob_pp_line ?? row.model_prob_ud_line;
+          const mOddsEdge   = mCustomOdds != null && mModelProb != null
             ? mModelProb - impliedProb(mCustomOdds)
             : null;
-          const mEdgeDisp    = edgeDisplay(mOddsEdge, mCustomOdds != null && mModelProb != null);
 
           return (
-            <div key={`m-${id}`} className="ks-mobile-card" onClick={() => toggleExpand(id)}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '14px', color: 'var(--ev-text)' }}>
-                    {row.pitcher_name}
-                  </span>
-                  {result && (
-                    <span style={{
-                      fontSize: '10px', fontWeight: 700, color: result.color,
-                      border: `1px solid ${result.color}`, borderRadius: '2px',
-                      padding: '1px 5px', letterSpacing: '1px',
-                    }}>
-                      {result.text}
+            <div
+              key={`m-${id}`}
+              className="ks-mobile-card"
+              onClick={() => toggleExpand(id)}
+              style={{ borderRadius: '4px', padding: '12px', background: '#111416', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '6px' }}
+            >
+              {/* Header: name + team/opp + time */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '15px', color: 'rgba(255,255,255,0.95)' }}>
+                      {row.pitcher_name}
                     </span>
-                  )}
+                    {result && (
+                      <span style={{
+                        fontSize: '10px', fontWeight: 700, color: result.color,
+                        border: `1px solid ${result.color}`, borderRadius: '2px',
+                        padding: '1px 5px', letterSpacing: '1px',
+                      }}>
+                        {result.text}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                    {row.team} {row.is_home ? 'vs' : '@'} {row.opp_team}
+                  </div>
                 </div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--ev-dim)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
                   {fmtGameTime(row.game_time)}
                 </span>
               </div>
 
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)', marginBottom: '10px' }}>
-                {row.team} {row.is_home ? 'vs' : '@'} {row.opp_team}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+              {/* Play + metrics */}
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap', marginBottom: '10px' }}>
                 <div>
-                  <div style={LABEL}>THE PLAY</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 700, color: 'var(--ev-text)', marginTop: '4px' }}>
+                  <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
                     {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
+                    {trackOdds != null && (
+                      <span style={{ fontSize: '12px', color: 'var(--ev-blue)', fontWeight: 400, marginLeft: '6px' }}>
+                        {fmtOdds(trackOdds)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <div style={LABEL}>ODDS</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: 'var(--ev-blue)' }}>
-                    {fmtOdds(trackOdds)}
-                  </div>
-                </div>
-                <div>
-                  <div style={LABEL}>BOOK EDGE</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
+                  <div style={{ ...LABEL, marginBottom: '3px' }}>EDGE</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
                     {bookEdgeDisp.text}
                   </div>
                 </div>
                 <div>
-                  <div style={LABEL}>MODEL PROB</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
+                  <div style={{ ...LABEL, marginBottom: '3px' }}>MODEL PROB</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', color: modelProbDisp.color, fontWeight: modelProbDisp.weight }}>
                     {modelProbDisp.text}
                   </div>
                 </div>
-                <div>
-                  <div style={LABEL}>SWSTR%</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', marginTop: '4px', color: statColor('p_swstr_pct_10', row.p_swstr_pct_10) }}>
-                    {fmtPct1(row.p_swstr_pct_10)}
-                  </div>
-                </div>
-                <div onClick={e => e.stopPropagation()}>
+                <div onClick={e => e.stopPropagation()} style={{ marginLeft: 'auto' }}>
                   <KsTrackButton
                     gameDate={toISODate(row.game_date)}
                     gamePk={row.game_pk}
@@ -1648,55 +1610,30 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                 </div>
               </div>
 
-              {/* MY ODDS — always visible on mobile card */}
-              <div
-                style={{
-                  display:    'flex',
-                  gap:        '20px',
-                  alignItems: 'flex-end',
-                  marginTop:  '10px',
-                  paddingTop: '10px',
-                  borderTop:  '1px solid var(--ev-border)',
-                }}
-                onClick={e => e.stopPropagation()}
-              >
-                <div>
-                  <div style={{ ...LABEL, color: 'var(--ev-gold)', marginBottom: '4px' }}>MY ODDS</div>
-                  <input
-                    type="text"
-                    placeholder="-110"
-                    value={mRawInput}
-                    onChange={e => setCustomLines(prev => ({ ...prev, [id]: e.target.value }))}
-                    style={{
-                      width:        '72px',
-                      background:   'rgba(255,255,255,0.06)',
-                      border:       `1px solid ${mRawInput.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.15)'}`,
-                      borderRadius: '2px',
-                      color:        mRawInput.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.4)',
-                      fontFamily:   'var(--font-mono)',
-                      fontSize:     '13px',
-                      fontWeight:   500,
-                      padding:      '4px 8px',
-                      textAlign:    'right',
-                      outline:      'none',
-                    }}
-                  />
+              {/* DFS chips */}
+              {(row.pp_line != null || row.ud_line != null) && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {row.pp_line != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', padding: '3px 8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <BookLogo bookKey="prizepicks" size={12} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
+                        {row.pp_side === 'under' ? 'U' : 'O'} {row.pp_line}
+                      </span>
+                    </div>
+                  )}
+                  {row.ud_line != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', padding: '3px 8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <BookLogo bookKey="underdog" size={12} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
+                        {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <div style={{ ...LABEL, color: 'var(--ev-gold)', marginBottom: '4px' }}>MY EDGE</div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize:   '15px',
-                    fontWeight: mEdgeDisp.weight,
-                    color:      mEdgeDisp.color,
-                  }}>
-                    {mEdgeDisp.text}
-                  </div>
-                </div>
-              </div>
+              )}
 
               {isExpanded && (
-                <div style={{ overflowX: 'auto', margin: '10px -14px -12px' }}>
+                <div style={{ margin: '12px -12px -12px' }}>
                   <DetailCard
                     row={row}
                     showMarket
