@@ -13,8 +13,15 @@ const BOOK_LOGOS: Record<string, string> = {
   betrivers:  'https://www.betrivers.com/favicon.ico',
   novig:      'https://www.novig.us/favicon.ico',
   betmgm:     'https://www.betmgm.com/favicon.ico',
+  caesars:    'https://www.caesarssportsbook.com/favicon.ico',
+  bet365:     'https://www.bet365.com/favicon.ico',
   prizepicks: 'https://www.prizepicks.com/favicon.ico',
   underdog:   'https://underdogfantasy.com/favicon.ico',
+};
+
+const BOOK_LOGOS_BACKUP: Record<string, string> = {
+  prizepicks: 'https://app.prizepicks.com/favicon.ico',
+  underdog:   'https://underdogfantasy.com/assets/favicon-32x32.png',
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -194,14 +201,20 @@ const OPPONENT_STATS: { key: StatKey | 'n_prior_team_games'; label: string; fmt:
 // ── Detail card ────────────────────────────────────────────────────────────
 
 function BookLogo({ bookKey, size = 18 }: { bookKey: string; size?: number }) {
-  if (!BOOK_LOGOS[bookKey]) return null;
+  const [usedBackup, setUsedBackup] = useState(false);
+  const primary = BOOK_LOGOS[bookKey];
+  const backup  = BOOK_LOGOS_BACKUP[bookKey];
+  if (!primary) return null;
   return (
     <img
-      src={BOOK_LOGOS[bookKey]}
+      src={usedBackup ? backup : primary}
       width={size}
       height={size}
       style={{ borderRadius: '50%', verticalAlign: 'middle', marginRight: 6 }}
-      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      onError={(e) => {
+        if (!usedBackup && backup) { setUsedBackup(true); }
+        else { e.currentTarget.style.display = 'none'; }
+      }}
     />
   );
 }
@@ -267,6 +280,8 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
       { key: 'betrivers',  label: 'BetRivers'  },
       { key: 'novig',      label: 'Novig'      },
       { key: 'betmgm',     label: 'BetMGM'     },
+      { key: 'caesars',    label: 'Caesars'    },
+      { key: 'bet365',     label: 'Bet365'     },
     ];
     if (!BOOKS.some(b => markets[b.key] != null)) return null;
     const favSide = row.book_side ?? 'over';
@@ -285,13 +300,16 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
             {BOOKS.map(({ key, label }) => {
               const data = markets[key];
               const bookLine = data?.line ?? null;
+              const lineMatches = bookLine != null && row.book_line != null && bookLine === row.book_line;
               const odds = data != null ? (favSide === 'under' ? data.under : data.over) : null;
-              const lineStr = bookLine != null ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
+              const lineStr = lineMatches ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
               return (
                 <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <td style={{ padding: '8px 0', color: data != null ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)' }}>
-                    <BookLogo bookKey={key} size={16} />
-                    {label}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <BookLogo bookKey={key} size={16} />
+                      {label}
+                    </div>
                   </td>
                   <td style={{ textAlign: 'right', padding: '8px 20px 8px 0', color: lineStr ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)' }}>
                     {lineStr ?? '—'}
@@ -404,7 +422,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
       <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 200px' }}>
           <div style={SEC_LABEL}>PITCHER FORM L10</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {PITCHER_FORM_STATS.map(({ key, label, fmt }) => {
               const val = row[key] as number | null;
               return (
@@ -418,7 +436,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
         </div>
         <div style={{ flex: '1 1 160px' }}>
           <div style={SEC_LABEL}>OPPONENT L15</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {OPPONENT_STATS.map(({ key, label, fmt, color }) => {
               const val = row[key as keyof Row] as number | null;
               return (
@@ -450,7 +468,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
       borderTop:     '1px solid rgba(255,255,255,0.06)',
       display:       'flex',
       flexDirection: 'column',
-      gap:           '12px',
+      gap:           '16px',
     }}>
       {/* Mobile summary row (proj/adj/book) */}
       {showMarket && (
@@ -462,12 +480,6 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
           <div>
             <div style={STAT_LABEL}>ADJ Ks</div>
             <div style={{ ...STAT_VAL, color: 'rgba(255,255,255,0.9)' }}>{(row.adj_k ?? row.pred_k).toFixed(2)}</div>
-          </div>
-          <div>
-            <div style={STAT_LABEL}>BOOK O/U</div>
-            <div style={{ ...STAT_VAL, color: 'rgba(255,255,255,0.9)' }}>
-              {row.has_line ? `${row.book_side === 'under' ? 'U' : 'O'} ${row.book_line}` : '—'}
-            </div>
           </div>
           <div>
             <div style={STAT_LABEL}>BOOK EDGE</div>
@@ -584,6 +596,7 @@ const COLS: ColDef[] = [
   { key: 'team',                 label: 'TEAM',       align: 'left'  },
   { key: 'opp_team',             label: 'OPP',        align: 'left'  },
   { key: 'pred_k',               label: 'PROJ KS',    align: 'right' },
+  { key: 'adj_k',                label: 'ADJ KS',     align: 'right' },
   { key: 'book_line',            label: 'BOOK O/U',   align: 'right' },
   { key: 'edge_book',            label: 'BOOK EDGE',  align: 'right' },
   { key: 'model_prob_book_line', label: 'MODEL PROB', align: 'right' },
@@ -1021,7 +1034,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
   const cols = useMemo(() => {
     if (!hasResults) return COLS;
     const out = [...COLS];
-    out.splice(out.findIndex(c => c.key === 'pred_k') + 1, 0, ACTUAL_K_COL);
+    out.splice(out.findIndex(c => c.key === 'adj_k') + 1, 0, ACTUAL_K_COL);
     return out;
   }, [hasResults]);
 
@@ -1336,6 +1349,12 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         transform:   isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                       }}>▶</span>
                       {row.pitcher_name}
+                      {row.has_line && row.book_line != null && Math.abs(row.pred_k - row.book_line) > 1.0 && (
+                        <span
+                          title="Model projection differs from market line by more than 1K. This may indicate lineup changes, weather, or model uncertainty. Use caution."
+                          style={{ marginLeft: '5px', color: 'var(--ev-red)', fontSize: '13px', fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}
+                        >!</span>
+                      )}
                       {result && (
                         <span style={{
                           marginLeft: '8px', fontSize: '10px', fontWeight: 700, color: result.color,
@@ -1360,6 +1379,11 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {/* PROJ KS */}
                     <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'rgba(255,255,255,0.95)', fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '14px' }}>
                       {row.pred_k.toFixed(2)}
+                    </td>
+
+                    {/* ADJ KS */}
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', color: 'rgba(255,255,255,0.7)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+                      {row.adj_k != null ? row.adj_k.toFixed(2) : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '10px' }}>—</span>}
                     </td>
 
                     {/* ACTUAL Ks */}
@@ -1572,8 +1596,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
                     {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
+                    {row.has_line && row.best_book && <BookLogo bookKey={row.best_book.toLowerCase()} size={12} />}
                     {trackOdds != null && (
-                      <span style={{ fontSize: '12px', color: 'var(--ev-blue)', fontWeight: 400, marginLeft: '6px' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--ev-blue)', fontWeight: 400, marginLeft: '4px' }}>
                         {fmtOdds(trackOdds)}
                       </span>
                     )}
