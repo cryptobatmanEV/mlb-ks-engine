@@ -4,24 +4,19 @@ import { useState, useEffect, useMemo, Fragment } from 'react';
 import KsTrackButton from './KsTrackButton';
 import { useIframeIdentity, identityHeaders } from '../lib/iframeIdentity';
 
-// ── Sportsbook logo URLs (favicon-based, 18px circles) ─────────────────────
+// ── Sportsbook logo URLs (Clearbit logo API — reliable cross-domain source) ──
 
 const BOOK_LOGOS: Record<string, string> = {
-  pinnacle:   'https://www.pinnacle.com/favicon.ico',
-  fanduel:    'https://www.fanduel.com/favicon.ico',
-  draftkings: 'https://www.draftkings.com/favicon.ico',
-  betrivers:  'https://www.betrivers.com/favicon.ico',
-  novig:      'https://www.novig.us/favicon.ico',
-  betmgm:     'https://www.betmgm.com/favicon.ico',
-  caesars:    'https://www.caesarssportsbook.com/favicon.ico',
-  bet365:     'https://www.bet365.com/favicon.ico',
-  prizepicks: 'https://www.prizepicks.com/favicon.ico',
-  underdog:   'https://underdogfantasy.com/favicon.ico',
-};
-
-const BOOK_LOGOS_BACKUP: Record<string, string> = {
-  prizepicks: 'https://app.prizepicks.com/favicon.ico',
-  underdog:   'https://underdogfantasy.com/assets/favicon-32x32.png',
+  pinnacle:   'https://logo.clearbit.com/pinnacle.com',
+  fanduel:    'https://logo.clearbit.com/fanduel.com',
+  draftkings: 'https://logo.clearbit.com/draftkings.com',
+  betrivers:  'https://logo.clearbit.com/betrivers.com',
+  novig:      'https://logo.clearbit.com/novig.us',
+  betmgm:     'https://logo.clearbit.com/betmgm.com',
+  caesars:    'https://logo.clearbit.com/caesars.com',
+  bet365:     'https://logo.clearbit.com/bet365.com',
+  prizepicks: 'https://logo.clearbit.com/prizepicks.com',
+  underdog:   'https://logo.clearbit.com/underdogfantasy.com',
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -201,20 +196,14 @@ const OPPONENT_STATS: { key: StatKey | 'n_prior_team_games'; label: string; fmt:
 // ── Detail card ────────────────────────────────────────────────────────────
 
 function BookLogo({ bookKey, size = 18 }: { bookKey: string; size?: number }) {
-  const [usedBackup, setUsedBackup] = useState(false);
-  const primary = BOOK_LOGOS[bookKey];
-  const backup  = BOOK_LOGOS_BACKUP[bookKey];
-  if (!primary) return null;
+  if (!BOOK_LOGOS[bookKey]) return null;
   return (
     <img
-      src={usedBackup ? backup : primary}
+      src={BOOK_LOGOS[bookKey]}
       width={size}
       height={size}
       style={{ borderRadius: '50%', verticalAlign: 'middle', marginRight: 6 }}
-      onError={(e) => {
-        if (!usedBackup && backup) { setUsedBackup(true); }
-        else { e.currentTarget.style.display = 'none'; }
-      }}
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
     />
   );
 }
@@ -280,10 +269,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
       { key: 'betrivers',  label: 'BetRivers'  },
       { key: 'novig',      label: 'Novig'      },
       { key: 'betmgm',     label: 'BetMGM'     },
-      { key: 'caesars',    label: 'Caesars'    },
-      { key: 'bet365',     label: 'Bet365'     },
     ];
-    if (!BOOKS.some(b => markets[b.key] != null)) return null;
     const favSide = row.book_side ?? 'over';
     return (
       <div style={CARD}>
@@ -300,9 +286,13 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
             {BOOKS.map(({ key, label }) => {
               const data = markets[key];
               const bookLine = data?.line ?? null;
-              const lineMatches = bookLine != null && row.book_line != null && bookLine === row.book_line;
+              const isConsensus = bookLine != null && row.book_line != null && bookLine === row.book_line;
+              const isAltLine   = bookLine != null && !isConsensus;
               const odds = data != null ? (favSide === 'under' ? data.under : data.over) : null;
-              const lineStr = lineMatches ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
+              const lineStr = bookLine != null ? `${favSide === 'under' ? 'U' : 'O'} ${bookLine}` : null;
+              const lineColor = lineStr
+                ? (isConsensus ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.38)')
+                : 'rgba(255,255,255,0.2)';
               return (
                 <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <td style={{ padding: '8px 0', color: data != null ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)' }}>
@@ -311,8 +301,9 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
                       {label}
                     </div>
                   </td>
-                  <td style={{ textAlign: 'right', padding: '8px 20px 8px 0', color: lineStr ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)' }}>
+                  <td style={{ textAlign: 'right', padding: '8px 20px 8px 0', color: lineColor }}>
                     {lineStr ?? '—'}
+                    {isAltLine && <span style={{ marginLeft: '4px', fontSize: '8px', color: 'rgba(255,255,255,0.25)', letterSpacing: '1px' }}>ALT</span>}
                   </td>
                   <td style={{ textAlign: 'right', color: odds != null ? (odds > 0 ? 'var(--ev-green)' : 'rgba(255,255,255,0.9)') : 'rgba(255,255,255,0.25)' }}>
                     {odds != null ? fmtOdds(odds) : '—'}
@@ -1349,9 +1340,9 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         transform:   isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                       }}>▶</span>
                       {row.pitcher_name}
-                      {row.has_line && row.book_line != null && Math.abs(row.pred_k - row.book_line) > 1.0 && (
+                      {row.has_line && row.book_line != null && row.adj_k != null && Math.abs(row.adj_k - row.book_line) > 1.0 && (
                         <span
-                          title="Model projection differs from market line by more than 1K. This may indicate lineup changes, weather, or model uncertainty. Use caution."
+                          title="Adjusted projection differs from market line by more than 1K strikeout. Check lineup, weather, or recent news before betting."
                           style={{ marginLeft: '5px', color: 'var(--ev-red)', fontSize: '13px', fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}
                         >!</span>
                       )}
@@ -1562,13 +1553,13 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               key={`m-${id}`}
               className="ks-mobile-card"
               onClick={() => toggleExpand(id)}
-              style={{ borderRadius: '4px', padding: '12px', background: '#111416', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '6px' }}
+              style={{ borderRadius: '4px', padding: '16px', background: '#111416', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '6px' }}
             >
               {/* Header: name + team/opp + time */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '15px', color: 'rgba(255,255,255,0.95)' }}>
+                    <span style={{ fontFamily: 'var(--font-syne)', fontWeight: 800, fontSize: '16px', color: 'rgba(255,255,255,0.95)' }}>
                       {row.pitcher_name}
                     </span>
                     {result && (
@@ -1591,7 +1582,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               </div>
 
               {/* Play + metrics */}
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '20px', flexWrap: 'wrap', marginBottom: '10px' }}>
                 <div>
                   <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
