@@ -42,6 +42,7 @@ export type Row = {
   model_prob_pp_line: number | null;
   edge_pp: number | null;
   ud_line: number | null;
+  ud_is_alt: boolean | null;
   ud_side: string | null;
   model_prob_ud_line: number | null;
   edge_ud: number | null;
@@ -207,7 +208,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
     background:   '#111416',
     borderRadius: '8px',
     border:       '1px solid rgba(255,255,255,0.06)',
-    padding:      '14px 16px',
+    padding:      '10px 12px',
   };
   const SEC_LABEL: React.CSSProperties = {
     fontFamily:    'var(--font-mono)',
@@ -328,8 +329,11 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
             </div>
             {row.ud_line != null ? (
               <>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1.1, marginBottom: '5px' }}>
-                  {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px', marginBottom: '5px' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1.1 }}>
+                    {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
+                  </span>
+                  {row.ud_is_alt && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '1px', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '2px', padding: '1px 3px' }}>ALT</span>}
                 </div>
                 {(() => { const d = edgeDisplay(row.edge_ud, true); return <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: d.weight, color: d.color }}>{d.text}</div>; })()}
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'rgba(255,255,255,0.25)', marginTop: '3px' }}>Break-even 53.5%</div>
@@ -432,7 +436,7 @@ function DetailCard({ row, showMarket, myLine }: { row: Row; showMarket?: boolea
       borderTop:     '1px solid rgba(255,255,255,0.06)',
       display:       'flex',
       flexDirection: 'column',
-      gap:           '16px',
+      gap:           '10px',
     }}>
       {/* Mobile summary row (proj/adj/book) */}
       {showMarket && (
@@ -1357,7 +1361,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     )}
 
                     {/* BOOK O/U — line prominent, book logo + odds below */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', verticalAlign: 'middle' }}>
                       {row.has_line ? (
                         <div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.95)', lineHeight: 1.2 }}>
@@ -1401,13 +1405,14 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     </td>
 
                     {/* UD — logo + line */}
-                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right' }}>
+                    <td style={{ padding: 'var(--ks-pad-y) var(--ks-pad-x)', textAlign: 'right', verticalAlign: 'middle' }}>
                       {row.ud_line != null ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
                           <BookLogo bookKey="underdog" size={14} />
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'rgba(255,255,255,0.85)' }}>
                             {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
                           </span>
+                          {row.ud_is_alt && <span style={{ fontSize: '8px', letterSpacing: '1px', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '2px', padding: '1px 3px' }}>ALT</span>}
                         </div>
                       ) : <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>—</span>}
                     </td>
@@ -1560,19 +1565,25 @@ export default function KsTable({ rows }: { rows: Row[] }) {
               </div>
 
               {/* Play + metrics */}
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '20px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                {/* THE PLAY — line only */}
                 <div>
                   <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
                     {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
-                    {row.has_line && row.best_book && <BookLogo bookKey={row.best_book.toLowerCase()} size={12} />}
+                  </div>
+                </div>
+                {/* Book logo + odds — separate item */}
+                {(row.has_line && row.best_book || trackOdds != null) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', paddingBottom: '2px' }}>
+                    {row.has_line && row.best_book && <BookLogo bookKey={row.best_book.toLowerCase()} size={18} />}
                     {trackOdds != null && (
-                      <span style={{ fontSize: '12px', color: 'var(--ev-blue)', fontWeight: 400, marginLeft: '4px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--ev-blue)', fontWeight: 500 }}>
                         {fmtOdds(trackOdds)}
                       </span>
                     )}
                   </div>
-                </div>
+                )}
                 <div>
                   <div style={{ ...LABEL, marginBottom: '3px' }}>EDGE</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', color: bookEdgeDisp.color, fontWeight: bookEdgeDisp.weight }}>
@@ -1621,6 +1632,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
                         {row.ud_side === 'under' ? 'U' : 'O'} {row.ud_line}
                       </span>
+                      {row.ud_is_alt && <span style={{ fontSize: '8px', letterSpacing: '1px', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '2px', padding: '1px 3px' }}>ALT</span>}
                     </div>
                   )}
                 </div>

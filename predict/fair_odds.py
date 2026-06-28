@@ -718,7 +718,13 @@ UD_IMPLIED = 115.0 / 215.0  # Underdog standard -115 pricing -> ~53.5%
 
 
 def fetch_underdog_strikeouts():
-    """Fetch MLB pitcher-strikeout standard lines from Underdog Fantasy."""
+    """Fetch MLB pitcher-strikeout lines from Underdog Fantasy (standard + alt).
+
+    Collects ALL lines regardless of payout multiplier. Standard lines
+    (payout_multiplier == 1.0) are tagged ud_is_standard=True. join_underdog()
+    prefers standard lines and falls back to the closest alt line when none
+    exists for a given pitcher.
+    """
     try:
         r = requests.get(UNDERDOG_URL, timeout=20, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -749,9 +755,11 @@ def fetch_underdog_strikeouts():
         lower  = next((o for o in options if o.get('choice') == 'lower'), None)
         if not higher or not lower:
             continue
-        if str(higher.get('payout_multiplier', '')) != '1.0' or \
-           str(lower.get('payout_multiplier', '')) != '1.0':
-            continue
+
+        is_standard = (
+            str(higher.get('payout_multiplier', '')) == '1.0' and
+            str(lower.get('payout_multiplier', ''))  == '1.0'
+        )
 
         app_id = app_stat.get('appearance_id')
         app    = appearances.get(app_id, {})
@@ -768,12 +776,16 @@ def fetch_underdog_strikeouts():
         if not full_name:
             continue
 
-        rows.append({'player_name_raw': full_name, 'ud_line': float(stat_value)})
+        rows.append({
+            'player_name_raw': full_name,
+            'ud_line':         float(stat_value),
+            'ud_is_standard':  is_standard,
+        })
 
     df = pd.DataFrame(rows)
     if not df.empty:
         df['name_norm'] = df['player_name_raw'].apply(norm_name)
-        df = df.drop_duplicates(subset='name_norm')
+        # Keep all rows (multiple lines per player handled in join_underdog)
     return df
 
 
@@ -814,36 +826,68 @@ def join_prizepicks(pred_df, pp_df):
 
 def join_underdog(pred_df, ud_df):
     """
-    Match Underdog Fantasy lines onto predictions. Picks whichever side the
-    model favors and computes edge vs. Underdog's standard -115 pricing
-    (implied probability 115/215 ~= 53.5%) for that side.
+    Match Underdog Fantasy lines onto predictions. Prefers standard (1x payout)
+    lines; when none exists for a pitcher, falls back to the alt line whose
+    value is closest to adj_k. Sets ud_is_alt=True for the fallback case.
     """
     df = pred_df.copy()
     df['name_norm'] = df['pitcher_name'].apply(norm_name)
 
     if ud_df.empty:
-        df['ud_line'] = None
-        df['ud_side'] = None
+        df['ud_line']            = None
+        df['ud_is_alt']          = None
+        df['ud_side']            = None
         df['model_prob_ud_line'] = None
-        df['edge_ud'] = None
+        df['edge_ud']            = None
         return df.drop(columns=['name_norm'])
 
-    df = df.merge(ud_df[['name_norm', 'ud_line']], on='name_norm', how='left').drop(columns=['name_norm'])
-    df['ud_side'] = None
+    # ── Standard lines: take first per player ───────────────────────────────
+    std_df = ud_df[ud_df['ud_is_standard']][['name_norm', 'ud_line']].copy()
+    std_best = std_df.groupby('name_norm', as_index=False).first()
+    std_best['ud_is_alt'] = False
+
+    # ── Alt lines: only for players with no standard line ───────────────────
+    players_with_std = set(std_best['name_norm'])
+    alt_df = ud_df[~ud_df['ud_is_standard'] & ~ud_df['name_norm'].isin(players_with_std)][
+        ['name_norm', 'ud_line']
+    ].copy()
+
+    alt_best = pd.DataFrame(columns=['name_norm', 'ud_line', 'ud_is_alt'])
+    if not alt_df.empty:
+        # Pick the alt line closest to adj_k for each player
+        adj_k_map = dict(zip(df['name_norm'], df['adj_k'].astype(float)))
+        alt_df = alt_df.copy()
+        alt_df['adj_k_ref'] = alt_df['name_norm'].map(adj_k_map)
+        alt_df['dist'] = (alt_df['ud_line'] - alt_df['adj_k_ref']).abs()
+        alt_best = (
+            alt_df.sort_values('dist')
+            .groupby('name_norm', as_index=False)
+            .first()[['name_norm', 'ud_line']]
+            .copy()
+        )
+        alt_best['ud_is_alt'] = True
+
+    ud_best = pd.concat(
+        [std_best[['name_norm', 'ud_line', 'ud_is_alt']],
+         alt_best[['name_norm', 'ud_line', 'ud_is_alt']]],
+        ignore_index=True,
+    )
+
+    df = df.merge(ud_best, on='name_norm', how='left').drop(columns=['name_norm'])
+    df['ud_side']            = None
     df['model_prob_ud_line'] = None
 
     has_ud = df['ud_line'].notna()
     if has_ud.any():
         p_over = df.loc[has_ud].apply(lambda r: model_prob_over(r['adj_k'], r['ud_line']), axis=1)
-        diff = df.loc[has_ud, 'adj_k'] - df.loc[has_ud, 'ud_line']
-
+        diff   = df.loc[has_ud, 'adj_k'] - df.loc[has_ud, 'ud_line']
         side_over = diff > 0
-
-        df.loc[has_ud, 'ud_side'] = side_over.map({True: 'over', False: 'under'})
+        df.loc[has_ud, 'ud_side']            = side_over.map({True: 'over', False: 'under'})
         df.loc[has_ud, 'model_prob_ud_line'] = p_over.where(side_over, 1.0 - p_over)
 
     df['model_prob_ud_line'] = pd.to_numeric(df['model_prob_ud_line'], errors='coerce')
-    df['edge_ud'] = (df['model_prob_ud_line'] - UD_IMPLIED).where(has_ud).round(4)
+    df['edge_ud']   = (df['model_prob_ud_line'] - UD_IMPLIED).where(has_ud).round(4)
+    df['ud_is_alt'] = df['ud_is_alt'].where(has_ud)   # null for pitchers with no UD data
     return df
 
 
