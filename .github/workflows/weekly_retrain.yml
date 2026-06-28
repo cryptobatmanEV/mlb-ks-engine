@@ -104,4 +104,4 @@ jobs:
                   models/saved/ks_model_features.json
           git diff --cached --quiet && echo "Nothing to commit -- model unchanged" && exit 0
           git commit -m "Auto: weekly retrain $(date -u +'%Y-%m-%d')"
-          git push
+          git pull --rebase origin main && git push
