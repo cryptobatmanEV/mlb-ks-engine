@@ -46,7 +46,7 @@ const STEP_NUM: React.CSSProperties = {
 const FIND_PLAYS_STEPS: { title: string; def: string }[] = [
   {
     title: 'START WITH MODEL PROB',
-    def: "MODEL PROB is your primary signal — it's the model's confidence that the play wins. Above 60% means the model is highly confident. Sort the table by MODEL PROB to surface the strongest plays first.",
+    def: "MODEL PROB is your primary signal — it's the model's confidence that the play wins. Above 58% means the model is highly confident (shown in green). Sort the table by MODEL PROB to surface the strongest plays first.",
   },
   {
     title: 'CONFIRM WITH SWSTR%',
@@ -54,7 +54,7 @@ const FIND_PLAYS_STEPS: { title: string; def: string }[] = [
   },
   {
     title: 'CHECK PROJ Ks VS ADJ Ks',
-    def: "When these two numbers are close, the model and the market agree. A large gap means the market disagrees with the model — approach those plays with extra caution.",
+    def: "When these two numbers are close, the model and the market agree. A large gap means the market disagrees with the model — approach those plays with extra caution. A red ! badge signals the gap exceeds 1 strikeout.",
   },
   {
     title: 'USE THE MATCHUP',
@@ -62,7 +62,62 @@ const FIND_PLAYS_STEPS: { title: string; def: string }[] = [
   },
   {
     title: 'USE AI PICKS',
-    def: "The AI PICKS tab automatically surfaces the top plays, ranked by projection confidence — combining all of the above into a single shortlist.",
+    def: "The AI PICKS tab automatically surfaces the top plays, ranked by a composite score — MODEL PROB is the primary driver, weighted alongside SWSTR%, market edge, K/9, model/market agreement, and opponent K rate.",
+  },
+];
+
+// ── Sorting content ──────────────────────────────────────────────────────
+
+const SORT_ITEMS: { term: string; def: string }[] = [
+  {
+    term: 'BY EDGE',
+    def: "Ranks pitchers by BOOK EDGE descending — the plays with the most model value versus the sportsbook price appear first. Best starting point when you want the strongest value plays.",
+  },
+  {
+    term: 'BY GAME',
+    def: "Sorts pitchers by first-pitch time. Use this when you're tracking a specific slate or watching games in order and want to see who pitches first.",
+  },
+  {
+    term: 'AI PICKS',
+    def: "Switches to the AI PICKS tab, which shows only the top curated plays for the day. The AI ranks plays by a composite score that weights MODEL PROB most heavily, then SWSTR%, market edge, K/9, model/market agreement, and opponent K rate.",
+  },
+];
+
+// ── Market Odds content ──────────────────────────────────────────────────
+
+const MARKET_ODDS_ITEMS: { term: string; def: string }[] = [
+  {
+    term: 'PINNACLE',
+    def: "The sharpest market shown. Pinnacle accepts bets from winning players and adjusts lines quickly, making their number the most efficient price in the industry. When Pinnacle's line differs from others, Pinnacle is usually right.",
+  },
+  {
+    term: 'FANDUEL / DRAFTKINGS / BETRIVERS / BETMGM',
+    def: "Major US sportsbooks. These books are less sharp than Pinnacle but often offer better prices on sharp sides. The consensus line shown on the main table card is the most common number across these markets.",
+  },
+  {
+    term: 'NOVIG',
+    def: "A no-vig exchange-style book that offers reduced juice. Novig's number may differ from the consensus — a useful second data point for finding soft lines.",
+  },
+  {
+    term: 'ALT BADGE',
+    def: "Shown next to a book's line when that book is offering a different total than the consensus. Alt lines are displayed in muted text and carry different implied odds — the BOOK EDGE figure is calculated from the consensus line, not alt lines.",
+  },
+];
+
+// ── DFS Lines content ────────────────────────────────────────────────────
+
+const DFS_ITEMS: { term: string; def: string }[] = [
+  {
+    term: 'PRIZEPICKS',
+    def: "Pick'em-style DFS. Standard pricing is -119 over/under, giving a break-even win rate of 53.5%. The edge shown is the model's probability on the recommended side minus that 53.5% threshold.",
+  },
+  {
+    term: 'UNDERDOG FANTASY',
+    def: "Pick'em-style DFS with standard pricing of -115 over/under, also a 53.5% break-even. The edge is computed the same way as PrizePicks.",
+  },
+  {
+    term: 'ALT BADGE (UNDERDOG)',
+    def: "When Underdog has no standard 1x-payout line for a pitcher, the model falls back to the closest alt-line to the adjusted projection. An ALT badge next to the UD line signals this fallback was used — treat the edge figure with slightly more caution.",
   },
 ];
 
@@ -83,15 +138,23 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: 'BOOK EDGE',
-    def: "How much value the model sees on this side compared to the sportsbook price. Green = the model favors this side more than the book's price suggests. Red = the book is priced above the model's estimate.",
+    def: "The model's probability on the recommended side minus the implied probability of the book's price. Green = positive value; red = the book's price implies more confidence than the model has.",
+  },
+  {
+    term: 'MODEL PROB',
+    def: "Calibrated probability that the recommended play wins. Above 58% is green (high confidence). 50–58% is muted (lean). Below 50% is red (model favors the other side).",
   },
   {
     term: 'PP LINE',
-    def: 'PrizePicks strikeout line for this pitcher (typically a whole number, played as -110 over/under).',
+    def: "PrizePicks strikeout line for this pitcher, played as -119 over/under (break-even 53.5%).",
   },
   {
     term: 'PP EDGE',
-    def: "How much value the model sees on PrizePicks' pick'em-style pricing. Green = the model favors the over.",
+    def: "How much value the model sees on PrizePicks' pick'em-style pricing at -119. Green = the model favors the shown side.",
+  },
+  {
+    term: 'UD LINE',
+    def: "Underdog Fantasy strikeout line, played at -115 (break-even 53.5%). An ALT badge means no standard Underdog line existed and the model fell back to the closest alt-line.",
   },
   {
     term: 'MY LINE',
@@ -197,6 +260,150 @@ export default function GuidePage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Sorting */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '16px' }}>SORTING</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {SORT_ITEMS.map(({ term, def }) => (
+              <div key={term}>
+                <div style={{ ...TERM, marginBottom: '4px' }}>{term}</div>
+                <div style={DEF}>{def}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AI Picks */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '10px' }}>AI PICKS</div>
+          <p style={{ ...DEF, margin: '0 0 12px', color: 'var(--ev-muted)' }}>
+            The AI PICKS tab surfaces the top 5 plays for the day, selected and ranked
+            automatically. Plays must pass both a minimum MODEL PROB threshold (55%) and a minimum
+            SWSTR% threshold (20%) to qualify — pitchers who don&apos;t miss bats consistently are
+            excluded regardless of the line.
+          </p>
+          <p style={{ ...DEF, margin: '0 0 12px', color: 'var(--ev-muted)' }}>
+            Qualifying plays are scored on a composite that weighs MODEL PROB most heavily, then
+            SWSTR% above the 20% baseline, market edge, K/9 above a 7.0 baseline,
+            model/market agreement, and opponent strikeout rate. The top 5 by composite score
+            are shown.
+          </p>
+          <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
+            Each AI pick card shows the recommended play, the book or DFS source, MODEL PROB, BOOK
+            EDGE, and a one-line reason summarizing the key factors behind the selection.
+          </p>
+        </div>
+
+        {/* Market Odds */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '16px' }}>MARKET ODDS</div>
+          <p style={{ ...DEF, margin: '0 0 16px', color: 'var(--ev-muted)' }}>
+            Expand any row to see the MARKET ODDS & DFS card, which shows the strikeout line and
+            price across six sportsbooks: Pinnacle, FanDuel, DraftKings, BetRivers, Novig, and
+            BetMGM.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {MARKET_ODDS_ITEMS.map(({ term, def }) => (
+              <div key={term}>
+                <div style={{ ...TERM, marginBottom: '4px' }}>{term}</div>
+                <div style={DEF}>{def}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* DFS Lines */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '16px' }}>DFS LINES</div>
+          <p style={{ ...DEF, margin: '0 0 16px', color: 'var(--ev-muted)' }}>
+            PrizePicks and Underdog Fantasy lines appear in the expanded card alongside sportsbook
+            odds. Both are pick&apos;em style — you&apos;re playing the over or under against a
+            fixed line at a set price rather than against a market.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {DFS_ITEMS.map(({ term, def }) => (
+              <div key={term}>
+                <div style={{ ...TERM, marginBottom: '4px' }}>{term}</div>
+                <div style={DEF}>{def}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Model Probability */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '10px' }}>MODEL PROBABILITY</div>
+          <p style={{ ...DEF, margin: '0 0 14px', color: 'var(--ev-muted)' }}>
+            MODEL PROB is the model&apos;s calibrated probability that the recommended play wins.
+            Calibrated means the number is not just a raw score — it has been adjusted so that
+            plays the model calls 60% have historically won around 60% of the time.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-green)', fontWeight: 700, minWidth: '60px', paddingTop: '1px' }}>{'> 58%'}</div>
+              <div style={DEF}>Green — high confidence. The model sees a strong probability edge on this side. Prioritize these plays.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)', fontWeight: 700, minWidth: '60px', paddingTop: '1px' }}>50–58%</div>
+              <div style={DEF}>Muted — a lean, not a lock. The model slightly favors this side but isn&apos;t highly confident. Can still be +EV depending on the price.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-red)', fontWeight: 700, minWidth: '60px', paddingTop: '1px' }}>{'< 50%'}</div>
+              <div style={DEF}>Red — the model actually favors the other side. The recommended play may still carry book value due to pricing, but treat it with caution.</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ! Alert Badge */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '10px' }}>! ALERT BADGE (K TOOL)</div>
+          <p style={{ ...DEF, margin: '0 0 12px', color: 'var(--ev-muted)' }}>
+            A red <span style={{ color: 'var(--ev-red)', fontWeight: 700 }}>!</span> appears
+            next to a pitcher&apos;s name when the adjusted projection (ADJ Ks) differs from the
+            consensus book line by more than 1 strikeout. This signals that the model and the
+            market are far apart on this pitcher.
+          </p>
+          <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
+            Common causes: a late lineup scratch, a weather delay, a pitcher on shortened rest,
+            or a recent development not yet reflected in the model. When you see the ! badge,
+            hover for the tooltip, then verify the pitcher&apos;s status before placing a bet.
+          </p>
+        </div>
+
+        {/* Book Edge */}
+        <div style={{ ...CARD, padding: '20px 24px', marginBottom: '24px' }}>
+          <div style={{ ...LABEL, marginBottom: '10px' }}>BOOK EDGE</div>
+          <p style={{ ...DEF, margin: '0 0 14px', color: 'var(--ev-muted)' }}>
+            BOOK EDGE is the model&apos;s probability on the recommended side minus the implied
+            probability of the book&apos;s price. A +5% edge means the model gives the play a
+            5-percentage-point higher probability of winning than the price implies.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-green)', fontWeight: 700, minWidth: '64px', paddingTop: '1px' }}>{'> +5%'}</div>
+              <div style={DEF}>Strong edge — bold green. Clear model value relative to the price being offered.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-green)', fontWeight: 400, minWidth: '64px', paddingTop: '1px' }}>0–5%</div>
+              <div style={DEF}>Thin edge — light green. Positive expected value but slim margin. Worth playing at the right price.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-muted)', fontWeight: 400, minWidth: '64px', paddingTop: '1px' }}>0 to −3%</div>
+              <div style={DEF}>Near neutral — muted. The model and the price are roughly aligned. Marginal or no sportsbook edge.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ev-red)', fontWeight: 400, minWidth: '64px', paddingTop: '1px' }}>{'< −3%'}</div>
+              <div style={DEF}>Negative edge — red. The book is pricing the other side. The model has less confidence than the price implies.</div>
+            </div>
+          </div>
+          <p style={{ ...DEF, margin: 0, color: 'var(--ev-muted)' }}>
+            A negative BOOK EDGE doesn&apos;t always mean skip the play. If the DFS lines (PP or
+            UD) offer better value than the sportsbook for the same projection, the DFS edge may
+            be the real opportunity. Always compare BOOK EDGE, PP EDGE, and UD EDGE before
+            deciding where to play.
+          </p>
         </div>
 
         {/* How to use My Line */}
