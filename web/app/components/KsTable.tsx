@@ -1598,7 +1598,32 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     {modelProbDisp.text}
                   </div>
                 </div>
-                <div onClick={e => e.stopPropagation()} style={{ marginLeft: 'auto' }}>
+                <div
+                  onClick={e => e.stopPropagation()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}
+                >
+                  <input
+                    type="text"
+                    placeholder="-110"
+                    value={mRawInput}
+                    onChange={e => setCustomLines(prev => ({ ...prev, [id]: e.target.value }))}
+                    style={{
+                      width:        '72px',
+                      background:   'rgba(255,255,255,0.06)',
+                      border:       `1px solid ${mRawInput.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '4px',
+                      color:        mRawInput.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.3)',
+                      fontFamily:   'var(--font-mono)',
+                      fontSize:     '11px',
+                      padding:      '4px 7px',
+                      textAlign:    'right',
+                      outline:      'none',
+                    }}
+                  />
+                  {mOddsEdge != null && (() => {
+                    const d = edgeDisplay(mOddsEdge, true);
+                    return <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: d.color, fontWeight: d.weight }}>{d.text}</span>;
+                  })()}
                   <KsTrackButton
                     gameDate={toISODate(row.game_date)}
                     gamePk={row.game_pk}
@@ -1615,41 +1640,6 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                     authHeaders={authHeaders}
                   />
                 </div>
-              </div>
-
-              {/* MY ODDS + MY EDGE */}
-              <div
-                onClick={e => e.stopPropagation()}
-                style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}
-              >
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--ev-gold)' }}>MY ODDS</span>
-                <input
-                  type="text"
-                  placeholder="-110"
-                  value={mRawInput}
-                  onChange={e => setCustomLines(prev => ({ ...prev, [id]: e.target.value }))}
-                  style={{
-                    width:        '72px',
-                    background:   'rgba(255,255,255,0.06)',
-                    border:       `1px solid ${mRawInput.trim() ? 'rgba(255,200,0,0.5)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '4px',
-                    color:        mRawInput.trim() ? 'var(--ev-gold)' : 'rgba(255,255,255,0.3)',
-                    fontFamily:   'var(--font-mono)',
-                    fontSize:     '11px',
-                    padding:      '4px 7px',
-                    textAlign:    'right',
-                    outline:      'none',
-                  }}
-                />
-                {mOddsEdge != null && (() => {
-                  const d = edgeDisplay(mOddsEdge, true);
-                  return (
-                    <>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--ev-gold)' }}>MY EDGE</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: d.color, fontWeight: d.weight }}>{d.text}</span>
-                    </>
-                  );
-                })()}
               </div>
 
               {/* DFS chips */}
