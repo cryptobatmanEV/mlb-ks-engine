@@ -9,7 +9,7 @@ const LOGO_URLS: Record<string, string[]> = {
   novig:      ['https://cdn.brandfetch.io/novig.us/w/400/h/400',            'https://www.google.com/s2/favicons?domain=novig.us&sz=32'],
   betmgm:     ['https://cdn.brandfetch.io/betmgm.com/w/400/h/400',         'https://www.google.com/s2/favicons?domain=betmgm.com&sz=32'],
   prizepicks: ['https://cdn.brandfetch.io/prizepicks.com/w/400/h/400',      'https://www.google.com/s2/favicons?domain=prizepicks.com&sz=32'],
-  underdog:   ['https://cdn.brandfetch.io/underdogfantasy.com/w/400/h/400', 'https://www.google.com/s2/favicons?domain=underdogfantasy.com&sz=32'],
+  // underdog logo has a white background baked in — always use the badge fallback
 };
 
 const BRAND_COLORS: Record<string, string> = {
@@ -20,7 +20,7 @@ const BRAND_COLORS: Record<string, string> = {
   novig:      '#7c3aed',
   betmgm:     '#bf9b30',
   prizepicks: '#7c3aed',
-  underdog:   '#ff6b35',
+  underdog:   '#FFC629',
 };
 
 function BookBadge({ letter, color, size }: { letter: string; color: string; size: number }) {
