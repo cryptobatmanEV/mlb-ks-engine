@@ -127,9 +127,8 @@ export default function KsTrackButton({
     return (
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
         <input
-          type="number"
-          min="0.1"
-          step="0.5"
+          type="text"
+          inputMode="decimal"
           value={stake}
           onChange={e => setStake(e.target.value)}
           onKeyDown={e => {

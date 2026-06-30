@@ -1600,7 +1600,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                 </div>
                 <div
                   onClick={e => e.stopPropagation()}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}
                 >
                   <input
                     type="text"

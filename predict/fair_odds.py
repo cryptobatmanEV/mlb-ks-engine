@@ -671,46 +671,57 @@ def join_sportsbook_odds(pred_df, odds_df):
 # ── [4] PrizePicks projections ──────────────────────────────────────────────────
 
 def fetch_prizepicks_strikeouts():
-    """Fetch MLB pitcher-strikeout 'standard' projections from PrizePicks."""
-    try:
-        r = requests.get(PRIZEPICKS_URL, params=PRIZEPICKS_PARAMS,
-                          headers=PRIZEPICKS_HEADERS, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        print(f"  PrizePicks fetch failed: {e}")
-        return pd.DataFrame()
+    """Fetch MLB pitcher-strikeout 'standard' projections from PrizePicks.
 
-    players = {
-        item['id']: item.get('attributes', {}).get('name', '')
-        for item in data.get('included', [])
-        if item.get('type') == 'new_player'
-    }
+    Retries up to 2 times (60 s apart) when PrizePicks returns a valid HTTP
+    response but 0 matching lines. PP typically doesn't post today's lines
+    until mid-morning, so the early pipeline run may see a legitimately empty
+    response that resolves on retry. HTTP errors are not retried.
+    """
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(PRIZEPICKS_URL, params=PRIZEPICKS_PARAMS,
+                              headers=PRIZEPICKS_HEADERS, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            print(f"  PrizePicks fetch failed: {e}")
+            return pd.DataFrame()
 
-    rows = []
-    for proj in data.get('data', []):
-        attrs = proj.get('attributes', {})
-        if attrs.get('stat_type') != PRIZEPICKS_STAT_TYPE:
-            continue  # excludes "Pitcher Strikeouts (Combo)" and "Hitter Strikeouts"
-        if attrs.get('odds_type', 'standard') != 'standard':
-            continue  # skip demon/goblin alt lines
+        players = {
+            item['id']: item.get('attributes', {}).get('name', '')
+            for item in data.get('included', [])
+            if item.get('type') == 'new_player'
+        }
 
-        player_id = proj.get('relationships', {}).get('new_player', {}).get('data', {}).get('id')
-        player_name = players.get(player_id, '')
-        line = attrs.get('line_score')
-        if not player_name or line is None:
-            continue
+        rows = []
+        for proj in data.get('data', []):
+            attrs = proj.get('attributes', {})
+            if attrs.get('stat_type') != PRIZEPICKS_STAT_TYPE:
+                continue  # excludes "Pitcher Strikeouts (Combo)" and "Hitter Strikeouts"
+            if attrs.get('odds_type', 'standard') != 'standard':
+                continue  # skip demon/goblin alt lines
 
-        rows.append({
-            'player_name_raw': player_name,
-            'pp_line': float(line),
-        })
+            player_id = (proj.get('relationships', {})
+                         .get('new_player', {}).get('data', {}).get('id'))
+            player_name = players.get(player_id, '')
+            line = attrs.get('line_score')
+            if not player_name or line is None:
+                continue
+            rows.append({'player_name_raw': player_name, 'pp_line': float(line)})
 
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df['name_norm'] = df['player_name_raw'].apply(norm_name)
-        df = df.drop_duplicates(subset='name_norm')
-    return df
+        if rows:
+            df = pd.DataFrame(rows)
+            df['name_norm'] = df['player_name_raw'].apply(norm_name)
+            return df.drop_duplicates(subset='name_norm')
+
+        if attempt < 3:
+            print(f"  PrizePicks: 0 lines returned (attempt {attempt}/3) — "
+                  f"retrying in 60 s...")
+            time.sleep(60)
+
+    print("  PrizePicks: no pitcher-strikeout lines found after 3 attempts.")
+    return pd.DataFrame()
 
 
 PP_IMPLIED = 119.0 / 219.0  # PrizePicks standard pick'em pricing is -119 -> ~54.3%

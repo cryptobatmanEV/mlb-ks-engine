@@ -6,8 +6,9 @@ name: Daily Pipeline
 # early-morning run that only logs the previous day's results.
 #
 #   6:00 AM ET  (10:00 UTC) — log results ONLY (no new predictions)
-#   8:00 AM ET  (12:00 UTC) — full pipeline (log yesterday's results, then
-#                              generate today's projections)
+#  10:00 AM ET  (14:00 UTC) — full pipeline (log yesterday's results, then
+#                              generate today's projections; PP lines reliably
+#                              posted by this time)
 #  11:00 AM ET  (15:00 UTC) — full pipeline (day game lineups confirmed)
 #   2:00 PM ET  (18:00 UTC) — full pipeline (afternoon games)
 #   5:00 PM ET  (21:00 UTC) — full pipeline (evening games)
@@ -15,7 +16,7 @@ name: Daily Pipeline
 on:
   schedule:
     - cron: '0 10 * * *'   #  6:00 AM ET (10:00 UTC) — log results ONLY
-    - cron: '0 12 * * *'   #  8:00 AM ET (12:00 UTC) — full pipeline
+    - cron: '0 14 * * *'   # 10:00 AM ET (14:00 UTC) — full pipeline
     - cron: '0 15 * * *'   # 11:00 AM ET (15:00 UTC) — full pipeline
     - cron: '0 18 * * *'   #  2:00 PM ET (18:00 UTC) — full pipeline
     - cron: '0 21 * * *'   #  5:00 PM ET (21:00 UTC) — full pipeline
