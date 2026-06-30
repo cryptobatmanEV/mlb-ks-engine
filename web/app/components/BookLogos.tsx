@@ -9,7 +9,7 @@ const LOGO_URLS: Record<string, string[]> = {
   novig:      ['https://cdn.brandfetch.io/novig.us/w/400/h/400',            'https://www.google.com/s2/favicons?domain=novig.us&sz=32'],
   betmgm:     ['https://cdn.brandfetch.io/betmgm.com/w/400/h/400',         'https://www.google.com/s2/favicons?domain=betmgm.com&sz=32'],
   prizepicks: ['https://cdn.brandfetch.io/prizepicks.com/w/400/h/400',      'https://www.google.com/s2/favicons?domain=prizepicks.com&sz=32'],
-  // underdog logo has a white background baked in — always use the badge fallback
+  underdog:   ['https://cdn.brandfetch.io/underdogfantasy.com/w/400/h/400', 'https://www.google.com/s2/favicons?domain=underdogfantasy.com&sz=32'],
 };
 
 const BRAND_COLORS: Record<string, string> = {
@@ -54,6 +54,34 @@ export function BookLogo({ bookKey, size = 18 }: { bookKey: string; size?: numbe
 
   if (!urls || urlIndex >= urls.length) {
     return <BookBadge letter={letter} color={color} size={size} />;
+  }
+
+  // Underdog's logo has a white background baked in. Render it inside a yellow
+  // circle and use multiply blend so the white becomes transparent.
+  if (bookKey === 'underdog') {
+    return (
+      <span style={{
+        display:        'inline-flex',
+        alignItems:     'center',
+        justifyContent: 'center',
+        width:          size,
+        height:         size,
+        borderRadius:   '50%',
+        background:     '#FFC629',
+        verticalAlign:  'middle',
+        marginRight:    6,
+        flexShrink:     0,
+        overflow:       'hidden',
+      }}>
+        <img
+          src={urls[urlIndex]}
+          width={size}
+          height={size}
+          style={{ objectFit: 'cover', mixBlendMode: 'multiply' }}
+          onError={() => setUrlIndex(i => i + 1)}
+        />
+      </span>
+    );
   }
 
   return (
