@@ -26,6 +26,11 @@ on:
         description: 'Backfill results for this date (YYYY-MM-DD). Leave blank to log yesterday.'
         required: false
         default: ''
+      force_rerun:
+        description: 'Re-process even if this date is already logged (removes old rows, re-fetches boxscores). Use to pick up starters confirmed after the initial log run.'
+        required: false
+        default: 'false'
+        type: boolean
 
 # Serialize runs so concurrent schedule triggers never race to push.
 # cancel-in-progress: false queues the new run rather than killing the active one.
@@ -108,7 +113,10 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python -m scripts.log_results ${{ github.event.inputs.log_date }}
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.inputs.force_rerun }}" = "true" ]; then FLAGS="--rerun"; fi
+          python -m scripts.log_results ${{ github.event.inputs.log_date }} $FLAGS
 
       # ── Generate today's predictions ───────────────────────────────────────
       # Skipped on the 6 AM run (log-only). NO continue-on-error: if this step

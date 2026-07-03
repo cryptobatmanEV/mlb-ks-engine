@@ -411,7 +411,7 @@ def backfill_tracked_bets(date_str, pred_df):
         print(f"  WARNING: ks_tracked_bets backfill failed: {e}")
 
 
-def run(date_str=None, force_db=False):
+def run(date_str=None, force_db=False, rerun=False):
     if date_str is None:
         date_str = (date_cls.today() - timedelta(days=1)).isoformat()
 
@@ -421,22 +421,34 @@ def run(date_str=None, force_db=False):
 
     # Guard against logging the same date twice
     if already_logged(date_str):
-        if not force_db:
+        if rerun:
+            # --rerun: wipe existing rows for this date and re-process from the
+            # current fair_odds CSV. Use this when a starter was confirmed late
+            # and missed the initial logging window (e.g., a night game whose
+            # lineup wasn't posted until after all pipeline runs had already
+            # committed and the 6 AM log run had already fired).
+            print(f"\n  {date_str} is already in the log — removing existing rows for re-processing (--rerun).")
+            existing = pd.read_csv(LOG_PATH)
+            kept = existing[existing['game_date'].astype(str) != str(date_str)]
+            removed = len(existing) - len(kept)
+            kept.to_csv(LOG_PATH, index=False)
+            print(f"  Removed {removed} existing row(s). Re-processing from current CSV...")
+        elif not force_db:
             print(f"\n  {date_str} is already in the log. Nothing to do.")
             print_calibration_summary()
             return
-
-        # --force-db: re-run the Neon writes from the existing log row(s)
-        # without re-appending to ks_results_log.csv. Useful to backfill
-        # ks_predictions/ks_tracked_bets after a DB connection issue.
-        print(f"\n  {date_str} is already in the log -- re-running DB writes only.")
-        log = pd.read_csv(LOG_PATH)
-        pred_df = log[log['game_date'].astype(str) == str(date_str)].copy()
-        write_results_to_db(date_str, pred_df)
-        backfill_tracked_bets(date_str, pred_df)
-        grade_ai_picks_log(date_str, pred_df)
-        print_calibration_summary()
-        return
+        else:
+            # --force-db: re-run the Neon writes from the existing log row(s)
+            # without re-appending to ks_results_log.csv. Useful to backfill
+            # ks_predictions/ks_tracked_bets after a DB connection issue.
+            print(f"\n  {date_str} is already in the log -- re-running DB writes only.")
+            log = pd.read_csv(LOG_PATH)
+            pred_df = log[log['game_date'].astype(str) == str(date_str)].copy()
+            write_results_to_db(date_str, pred_df)
+            backfill_tracked_bets(date_str, pred_df)
+            grade_ai_picks_log(date_str, pred_df)
+            print_calibration_summary()
+            return
 
     # Load predictions for that date
     print(f"\nLoading predictions for {date_str}...")
@@ -508,6 +520,7 @@ def run(date_str=None, force_db=False):
 if __name__ == '__main__':
     args = sys.argv[1:]
     force_db = '--force-db' in args
-    args = [a for a in args if a != '--force-db']
+    rerun    = '--rerun'    in args
+    args = [a for a in args if a not in ('--force-db', '--rerun')]
     date_arg = args[0] if args else None
-    run(date_arg, force_db=force_db)
+    run(date_arg, force_db=force_db, rerun=rerun)
