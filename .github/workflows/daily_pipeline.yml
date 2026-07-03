@@ -20,7 +20,18 @@ on:
     - cron: '0 15 * * *'   # 11:00 AM ET (15:00 UTC) — full pipeline
     - cron: '0 18 * * *'   #  2:00 PM ET (18:00 UTC) — full pipeline
     - cron: '0 21 * * *'   #  5:00 PM ET (21:00 UTC) — full pipeline
-  workflow_dispatch:         # manual trigger from the Actions tab (runs full pipeline)
+  workflow_dispatch:
+    inputs:
+      log_date:
+        description: 'Backfill results for this date (YYYY-MM-DD). Leave blank to log yesterday.'
+        required: false
+        default: ''
+
+# Serialize runs so concurrent schedule triggers never race to push.
+# cancel-in-progress: false queues the new run rather than killing the active one.
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
 
 permissions:
   contents: write   # needed to commit outputs back to the repo
@@ -97,7 +108,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python -m scripts.log_results
+        run: python -m scripts.log_results ${{ github.event.inputs.log_date }}
 
       # ── Generate today's predictions ───────────────────────────────────────
       # Skipped on the 6 AM run (log-only). NO continue-on-error: if this step
@@ -122,6 +133,7 @@ jobs:
           git add data/outputs/ data/logs/
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Auto: pipeline $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase
           git push
 
       # ── Verify predictions are in the database ─────────────────────────────
