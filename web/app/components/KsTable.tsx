@@ -603,8 +603,11 @@ function resultForRow(row: Row): { text: string; color: string } | null {
 // ── AI Picks ───────────────────────────────────────────────────────────────
 
 const AI_PICK_LIMIT = 5;
-const AI_MIN_SWSTR = 0.20;
 const AI_MIN_MODEL_PROB = 0.55;
+const AI_MAX_MODEL_PROB = 0.63;
+const AI_MIN_SWSTR = 0.18;
+const AI_MAX_SWSTR = 0.26;
+const AI_MAX_LINE = 5.5;
 const AI_K9_BASELINE = 7.0;
 const AI_SWSTR_BASELINE = 0.20;
 const AI_OPP_K_BASELINE = 0.20;
@@ -690,6 +693,16 @@ function buildPickReason(
   if (parts.length === 0) return lead ?? 'Model favors this play';
   const joined = parts.join(', ');
   return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
+function UnderWarning({ side, line }: { side: string | null | undefined; line: number | null | undefined }) {
+  if (side !== 'under' || line == null || line < 5.5) return null;
+  return (
+    <span
+      title="Historical data shows UNDER 5.5+ hits at only 44% — use caution."
+      style={{ color: '#f97316', fontSize: '11px', cursor: 'help', marginLeft: '4px' }}
+    >⚠</span>
+  );
 }
 
 function AiPickCard({ pick, rank, trackedKeys, authHeaders }: { pick: AiPick; rank: number; trackedKeys: Set<string>; authHeaders?: HeadersInit }) {
@@ -947,44 +960,29 @@ export default function KsTable({ rows }: { rows: Row[] }) {
 
     for (const row of rows) {
       if (row.model_prob_book_line == null || row.p_swstr_pct_10 == null) continue;
-      if (row.model_prob_book_line <= AI_MIN_MODEL_PROB || row.p_swstr_pct_10 <= AI_MIN_SWSTR) continue;
+      if (row.model_prob_book_line <= AI_MIN_MODEL_PROB || row.model_prob_book_line >= AI_MAX_MODEL_PROB) continue;
+      if (row.p_swstr_pct_10 < AI_MIN_SWSTR || row.p_swstr_pct_10 > AI_MAX_SWSTR) continue;
+      if (!row.has_line || row.book_line == null) continue;
+      if ((row.book_side ?? 'over') !== 'over') continue;
+      if (row.book_line > AI_MAX_LINE) continue;
 
       const adjK = row.adj_k ?? row.pred_k;
 
-      let trackSource: 'book' | 'pp' | 'model';
-      let trackLine: number;
-      let trackSide: string;
-      let trackOdds: number;
-      let trackEdge: number | null;
+      const trackSource: 'book' = 'book';
+      const trackLine   = row.book_line;
+      const trackSide   = 'over';
+      const trackOdds   = row.best_odds ?? -110;
+      const trackEdge   = row.edge_book;
 
-      if (row.has_line && row.book_line != null) {
-        trackSource = 'book';
-        trackLine   = row.book_line;
-        trackSide   = row.book_side ?? 'over';
-        trackOdds   = row.best_odds ?? -110;
-        trackEdge   = row.edge_book;
-      } else if (row.pp_line != null) {
-        trackSource = 'pp';
-        trackLine   = row.pp_line;
-        trackSide   = row.pp_side ?? 'over';
-        trackOdds   = -119;
-        trackEdge   = row.edge_pp;
-      } else {
-        trackSource = 'model';
-        trackLine   = Math.floor(row.pred_k) + 0.5;
-        trackSide   = 'over';
-        trackOdds   = -110;
-        trackEdge   = null;
-      }
-
-      const modelProbBonus = row.model_prob_book_line * 4;
-      const swstrBonus     = (row.p_swstr_pct_10 - AI_SWSTR_BASELINE) * 3;
-      const edgeBonus      = Math.max(row.edge_book ?? 0, row.edge_pp ?? 0, row.edge_ud ?? 0, 0) * 2;
+      const modelProbBonus = row.model_prob_book_line * 5;
+      const swstrBonus     = (Math.min(row.p_swstr_pct_10, AI_MAX_SWSTR) - AI_SWSTR_BASELINE) * 3;
+      const edgeBonus      = 0;
       const k9Bonus        = row.p_k_per9_10 != null ? (row.p_k_per9_10 - AI_K9_BASELINE) * 0.03 : 0;
       const agreementBonus = (1 - Math.abs(row.pred_k - adjK)) * 0.5;
       const oppKBonus      = row.opp_k_pct_15 != null ? (row.opp_k_pct_15 - AI_OPP_K_BASELINE) * 1.5 : 0;
+      const lineBonus      = trackLine === 3.5 ? 0.10 : trackLine === 4.5 ? 0.05 : 0.0;
 
-      const compositeScore = modelProbBonus + swstrBonus + edgeBonus + k9Bonus + agreementBonus + oppKBonus;
+      const compositeScore = modelProbBonus + swstrBonus + k9Bonus + agreementBonus + oppKBonus + lineBonus;
       const reason = buildPickReason(row, trackSide, trackLine, swstrBonus, k9Bonus, agreementBonus, oppKBonus, edgeBonus);
 
       candidates.push({ row, compositeScore, reason, trackSource, trackLine, trackSide, trackOdds, trackEdge });
@@ -1366,6 +1364,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         <div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.95)', lineHeight: 1.2 }}>
                             {row.book_side === 'under' ? 'U' : 'O'} {row.book_line}
+                            <UnderWarning side={row.book_side} line={row.book_line} />
                           </div>
                           {row.best_book && (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px', marginTop: '3px' }}>
@@ -1573,6 +1572,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
                     {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
+                    <UnderWarning side={playSide} line={playLine} />
                   </div>
                 </div>
                 {/* Book logo + odds — separate item */}
