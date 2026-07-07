@@ -6,7 +6,7 @@ Called as Step 5 of daily_pipeline.py.
 
 AI PICKS qualifications (mirrors KsTable.tsx constants):
   model_prob_book_line > 0.55  AND  p_swstr_pct_10 > 0.20
-  Top 5 picks by composite score are logged each day.
+  All qualifying plays are logged (no cap).
 
 Usage:
     python -m scripts.log_ai_picks              # today
@@ -30,7 +30,6 @@ OUTPUTS_DIR = 'data/outputs'
 
 AI_MIN_MODEL_PROB = 0.55
 AI_MIN_SWSTR      = 0.20
-AI_PICK_LIMIT     = 5
 AI_K9_BASELINE    = 7.0
 AI_SWSTR_BASELINE = 0.20
 AI_OPP_K_BASELINE = 0.20
@@ -165,13 +164,13 @@ def run(date_str=None):
         return
 
     df = pd.read_csv(path)
-    picks = compute_picks(df)[:AI_PICK_LIMIT]
+    picks = compute_picks(df)
 
     if not picks:
         print(f"  No AI picks qualify for {date_str}.")
         return
 
-    print(f"  {len(picks)} AI pick(s) qualify for {date_str} (cap={AI_PICK_LIMIT}):")
+    print(f"  {len(picks)} AI pick(s) qualify for {date_str}:")
     for p in picks:
         side = p['book_side'] or 'model'
         line = p['book_line'] or p['pp_line'] or '—'

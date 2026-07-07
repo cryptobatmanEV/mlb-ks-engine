@@ -966,7 +966,60 @@ def print_edge_sanity_check(df):
         print("Check ODDS_API_KEY in .env and PrizePicks/Underdog availability.")
 
 
-# ── [6] Save ──────────────────────────────────────────────────────────────────
+# ── [6] Calibration ───────────────────────────────────────────────────────────
+
+def apply_k_calibration(df):
+    """
+    Additive shift calibration for model_prob_book_line based on observed
+    bucket-level bias from historical performance analysis:
+
+      0.60–0.65 band: model claimed ~62%, actual hit rate ~50.7% → shift -0.08
+      >0.70 band:     slightly overconfident                      → shift -0.05
+      All other bands: leave unchanged.
+
+    Skips rows with is_frozen=1 (market already closed; prior calibrated value
+    is preserved by the freeze logic and must not be shifted again).
+    Recomputes edge_book = calibrated_prob - book_implied after shifting.
+    """
+    if 'model_prob_book_line' not in df.columns:
+        return df
+
+    mask = df['model_prob_book_line'].notna()
+    if 'is_frozen' in df.columns:
+        mask = mask & (df['is_frozen'] == 0)
+
+    if mask.sum() == 0:
+        return df
+
+    prob_before = df.loc[mask, 'model_prob_book_line'].copy()
+    prob_after  = prob_before.copy()
+
+    prob_after[(prob_before >= 0.60) & (prob_before < 0.65)] -= 0.08
+    prob_after[prob_before >= 0.70] -= 0.05
+    prob_after = prob_after.clip(0.0, 1.0)
+
+    df.loc[mask, 'model_prob_book_line'] = prob_after
+
+    if 'book_implied' in df.columns:
+        df.loc[mask, 'edge_book'] = (
+            df.loc[mask, 'model_prob_book_line'] - df.loc[mask, 'book_implied']
+        )
+
+    top_idx = prob_before.nlargest(10).index
+    print('\n  [K Calibration] model_prob_book_line before -> after (top 10 by pre-cal prob):')
+    for idx in top_idx:
+        name = df.loc[idx, 'pitcher_name'] if 'pitcher_name' in df.columns else str(idx)
+        b = prob_before[idx]
+        a = df.loc[idx, 'model_prob_book_line']
+        print(f'    {str(name):25s}  {b:.3f} -> {a:.3f}  ({a - b:+.3f})')
+
+    n_shifted = int((prob_after != prob_before).sum())
+    print(f'  Shifted {n_shifted}/{int(mask.sum())} row(s) with a non-zero adjustment.')
+
+    return df
+
+
+# ── [7] Save ──────────────────────────────────────────────────────────────────
 
 def save_output(df, date_str):
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -1159,6 +1212,9 @@ def run(date_str=None):
                 print(f"\n  Preserved prior-run odds for {_n_frozen} pitcher(s) (market closed).")
         except Exception as e:
             print(f"  Warning: could not preserve prior odds: {e}")
+
+    print("\n[7] Applying K model calibration...")
+    result = apply_k_calibration(result)
 
     save_output(result, date_str)
 
