@@ -55,10 +55,13 @@ CREATE TABLE IF NOT EXISTS ks_ai_picks_log (
     pp_side              TEXT,
     edge_pp              NUMERIC,
     actual_k             INT,
-    result               TEXT
+    result               TEXT,
+    UNIQUE (game_date, pitcher)
 );
 """
 
+# ON CONFLICT DO NOTHING: each (game_date, pitcher) is inserted once only.
+# The pipeline runs 5x/day and would otherwise insert ~5 duplicate rows per pick.
 _INSERT = """
 INSERT INTO ks_ai_picks_log
     (game_date, captured_at, pitcher, pitcher_name, team,
@@ -70,6 +73,7 @@ VALUES
      %s, %s, %s, %s, %s,
      %s, %s,
      %s, %s, %s, %s, %s)
+ON CONFLICT (game_date, pitcher) DO NOTHING
 """
 
 
