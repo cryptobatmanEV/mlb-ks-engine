@@ -970,16 +970,19 @@ def print_edge_sanity_check(df):
 
 def apply_k_calibration(df):
     """
-    Additive shift calibration for model_prob_book_line based on observed
-    bucket-level bias from historical performance analysis:
+    Two-pass additive shift calibration for model_prob_book_line.
 
-      0.60–0.65 band: model claimed ~62%, actual hit rate ~50.7% → shift -0.08
-      >0.70 band:     slightly overconfident                      → shift -0.05
-      All other bands: leave unchanged.
+    Pass 1 — model_prob band corrections (overconfidence):
+      0.60-0.65 band: -0.08  (model claimed ~62%, actual hit rate ~51%)
+      >0.70 band:     -0.05  (slight overconfidence)
 
-    Skips rows with is_frozen=1 (market already closed; prior calibrated value
-    is preserved by the freeze logic and must not be shifted again).
-    Recomputes edge_book = calibrated_prob - book_implied after shifting.
+    Pass 2 — edge-based corrections (book pricing as signal):
+      edge -10% to -5%: +0.03  (book tighter than model; actual hit ~57%)
+      edge  -5% to  0%: +0.04  (book tightest; actual hit ~61%)
+
+    Both passes use the original pre-calibration values for bucketing.
+    Edge_book is recomputed once after all shifts.
+    Skips is_frozen=1 rows (prior calibrated value preserved by freeze logic).
     """
     if 'model_prob_book_line' not in df.columns:
         return df
@@ -994,10 +997,17 @@ def apply_k_calibration(df):
     prob_before = df.loc[mask, 'model_prob_book_line'].copy()
     prob_after  = prob_before.copy()
 
+    # Pass 1: model_prob band shifts
     prob_after[(prob_before >= 0.60) & (prob_before < 0.65)] -= 0.08
     prob_after[prob_before >= 0.70] -= 0.05
-    prob_after = prob_after.clip(0.0, 1.0)
 
+    # Pass 2: edge-based corrections using original edge_book for bucketing
+    if 'edge_book' in df.columns:
+        edge_orig = df.loc[mask, 'edge_book'].copy()
+        prob_after[(edge_orig >= -0.10) & (edge_orig < -0.05)] += 0.03
+        prob_after[(edge_orig >= -0.05) & (edge_orig <  0.00)] += 0.04
+
+    prob_after = prob_after.clip(0.0, 1.0)
     df.loc[mask, 'model_prob_book_line'] = prob_after
 
     if 'book_implied' in df.columns:
@@ -1005,13 +1015,32 @@ def apply_k_calibration(df):
             df.loc[mask, 'model_prob_book_line'] - df.loc[mask, 'book_implied']
         )
 
-    top_idx = prob_before.nlargest(10).index
-    print('\n  [K Calibration] model_prob_book_line before -> after (top 10 by pre-cal prob):')
+    # Print 1: top 5 by pre-cal prob (catches band shifts)
+    top_idx = prob_before.nlargest(5).index
+    print('\n  [K Calibration] Top 5 by pre-cal prob:')
+    print(f'    {"Pitcher":<25}  {"Before":>6}  {"After":>6}  {"Shift":>6}  {"EdgeOrig":>9}')
     for idx in top_idx:
         name = df.loc[idx, 'pitcher_name'] if 'pitcher_name' in df.columns else str(idx)
         b = prob_before[idx]
         a = df.loc[idx, 'model_prob_book_line']
-        print(f'    {str(name):25s}  {b:.3f} -> {a:.3f}  ({a - b:+.3f})')
+        eo = df.loc[idx, 'edge_book'] if 'edge_book' in df.columns else float('nan')
+        # edge_book is now post-calibration; recompute original for display
+        bi = df.loc[idx, 'book_implied'] if 'book_implied' in df.columns else float('nan')
+        edge_pre = b - bi if not (b != b or bi != bi) else float('nan')
+        print(f'    {str(name):25s}  {b:.3f}  {a:.3f}  {a-b:+.3f}  {edge_pre:>+8.3f}')
+
+    # Print 2: 5 pitchers with most negative original edge (verifies edge correction)
+    if 'edge_book' in df.columns and 'book_implied' in df.columns:
+        edge_pre_series = prob_before - df.loc[mask, 'book_implied']
+        neg_idx = edge_pre_series.nsmallest(5).index
+        print('\n  [K Calibration] 5 most-negative-edge pitchers (edge correction target):')
+        print(f'    {"Pitcher":<25}  {"Before":>6}  {"After":>6}  {"Shift":>6}  {"EdgePre":>8}')
+        for idx in neg_idx:
+            name = df.loc[idx, 'pitcher_name'] if 'pitcher_name' in df.columns else str(idx)
+            b = prob_before[idx]
+            a = df.loc[idx, 'model_prob_book_line']
+            ep = edge_pre_series[idx]
+            print(f'    {str(name):25s}  {b:.3f}  {a:.3f}  {a-b:+.3f}  {ep:>+7.3f}')
 
     n_shifted = int((prob_after != prob_before).sum())
     print(f'  Shifted {n_shifted}/{int(mask.sum())} row(s) with a non-zero adjustment.')
