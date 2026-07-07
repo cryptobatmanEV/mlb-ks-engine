@@ -5,10 +5,8 @@ fair_odds CSV and INSERT qualifying plays into ks_ai_picks_log in Neon.
 Called as Step 5 of daily_pipeline.py.
 
 AI PICKS qualifications (mirrors KsTable.tsx constants):
-  model_prob_book_line > 0.55 AND < 0.63
-  book_side == 'over', book_line <= 5.5
-  p_swstr_pct_10 between 0.18 and 0.26
-  Top 5 picks by composite score are logged each day.
+  model_prob_book_line > 0.55  AND  p_swstr_pct_10 > 0.20
+  All qualifying plays are logged (no top-5 cap applied here).
 
 Usage:
     python -m scripts.log_ai_picks              # today
@@ -31,14 +29,10 @@ sys.path.insert(0, ROOT)
 OUTPUTS_DIR = 'data/outputs'
 
 AI_MIN_MODEL_PROB = 0.55
-AI_MAX_MODEL_PROB = 0.63
-AI_MIN_SWSTR      = 0.18
-AI_MAX_SWSTR      = 0.26
-AI_MAX_LINE       = 5.5
+AI_MIN_SWSTR      = 0.20
 AI_K9_BASELINE    = 7.0
 AI_SWSTR_BASELINE = 0.20
 AI_OPP_K_BASELINE = 0.20
-AI_PICK_LIMIT     = 5
 
 _CREATE = """
 CREATE TABLE IF NOT EXISTS ks_ai_picks_log (
@@ -115,34 +109,25 @@ def compute_picks(df):
 
         if model_prob is None or swstr is None:
             continue
-        if not (AI_MIN_MODEL_PROB < model_prob < AI_MAX_MODEL_PROB):
-            continue
-        if not (AI_MIN_SWSTR <= swstr <= AI_MAX_SWSTR):
-            continue
-
-        book_side = _str(row.get('book_side'))
-        book_line = _flt(row.get('book_line'))
-        if book_side != 'over':
-            continue
-        if book_line is None or book_line > AI_MAX_LINE:
+        if model_prob <= AI_MIN_MODEL_PROB or swstr <= AI_MIN_SWSTR:
             continue
 
         pred_k    = _flt(row.get('pred_k')) or 0.0
         adj_k     = _flt(row.get('adj_k'))
         adj_k_val = adj_k if adj_k is not None else pred_k
 
-        k9    = _flt(row.get('p_k_per9_10'))
-        opp_k = _flt(row.get('opp_k_pct_15'))
-
-        line_bonus = 0.10 if book_line == 3.5 else (0.05 if book_line == 4.5 else 0.0)
+        edge_book = _flt(row.get('edge_book')) or 0.0
+        edge_pp   = _flt(row.get('edge_pp'))   or 0.0
+        k9        = _flt(row.get('p_k_per9_10'))
+        opp_k     = _flt(row.get('opp_k_pct_15'))
 
         composite = (
-            model_prob * 5
-            + (min(swstr, AI_MAX_SWSTR) - AI_SWSTR_BASELINE) * 3
+            model_prob * 4
+            + (swstr - AI_SWSTR_BASELINE) * 3
+            + max(edge_book, edge_pp, 0.0) * 2
             + ((k9 - AI_K9_BASELINE) * 0.03 if k9 is not None else 0.0)
             + (1 - abs(pred_k - adj_k_val)) * 0.5
             + ((opp_k - AI_OPP_K_BASELINE) * 1.5 if opp_k is not None else 0.0)
-            + line_bonus
         )
 
         has_line = str(row.get('has_line', '0')).strip() in ('1', '1.0', 'True', 'true')
@@ -179,13 +164,13 @@ def run(date_str=None):
         return
 
     df = pd.read_csv(path)
-    picks = compute_picks(df)[:AI_PICK_LIMIT]
+    picks = compute_picks(df)
 
     if not picks:
         print(f"  No AI picks qualify for {date_str}.")
         return
 
-    print(f"  {len(picks)} AI pick(s) qualify for {date_str} (cap={AI_PICK_LIMIT}):")
+    print(f"  {len(picks)} AI pick(s) qualify for {date_str}:")
     for p in picks:
         side = p['book_side'] or 'model'
         line = p['book_line'] or p['pp_line'] or '—'
