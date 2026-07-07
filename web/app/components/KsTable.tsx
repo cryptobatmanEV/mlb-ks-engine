@@ -692,6 +692,16 @@ function buildPickReason(
   return joined.charAt(0).toUpperCase() + joined.slice(1);
 }
 
+function UnderWarning({ side, line }: { side: string | null | undefined; line: number | null | undefined }) {
+  if (side !== 'under' || line == null || line < 5.5) return null;
+  return (
+    <span
+      title="Historical data shows UNDER 5.5+ hits at only 44% — use caution."
+      style={{ color: '#f97316', fontSize: '11px', cursor: 'help', marginLeft: '4px' }}
+    >⚠</span>
+  );
+}
+
 function AiPickCard({ pick, rank, trackedKeys, authHeaders }: { pick: AiPick; rank: number; trackedKeys: Set<string>; authHeaders?: HeadersInit }) {
   const { row } = pick;
   const bookEdgeDisp  = edgeDisplay(row.edge_book, row.has_line);
@@ -1366,6 +1376,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                         <div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.95)', lineHeight: 1.2 }}>
                             {row.book_side === 'under' ? 'U' : 'O'} {row.book_line}
+                            <UnderWarning side={row.book_side} line={row.book_line} />
                           </div>
                           {row.best_book && (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px', marginTop: '3px' }}>
@@ -1573,6 +1584,7 @@ export default function KsTable({ rows }: { rows: Row[] }) {
                   <div style={{ ...LABEL, marginBottom: '3px' }}>THE PLAY</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1 }}>
                     {playLine != null ? `${playSide === 'under' ? 'U' : 'O'} ${playLine}` : '—'}
+                    <UnderWarning side={playSide} line={playLine} />
                   </div>
                 </div>
                 {/* Book logo + odds — separate item */}
