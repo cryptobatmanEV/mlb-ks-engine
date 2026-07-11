@@ -68,8 +68,8 @@ ODDS_PROVIDER = os.getenv('ODDS_PROVIDER', 'odds_api').lower().strip()
 PRED_DIR = 'data/predictions'
 OUT_DIR = 'data/outputs'
 
-PRIZEPICKS_URL = 'https://api.prizepicks.com/projections'
-PRIZEPICKS_PARAMS = {'league_id': 2, 'per_page': 250}  # league_id 2 = MLB
+PRIZEPICKS_URL = 'https://partner-api.prizepicks.com/projections'
+PRIZEPICKS_PARAMS = {'league_id': 2, 'per_page': 250, 'single_stat': 'true'}
 
 UNDERDOG_URL = 'https://api.underdogfantasy.com/v1/over_under_lines'
 PRIZEPICKS_HEADERS = {
@@ -673,7 +673,8 @@ def join_sportsbook_odds(pred_df, odds_df):
 def fetch_prizepicks_strikeouts():
     """Fetch MLB pitcher-strikeout 'standard' projections from PrizePicks.
 
-    Retries up to 2 times (60 s apart) when PrizePicks returns a valid HTTP
+    Uses the partner API endpoint which is not DataDome-protected.
+    Retries up to 2 times (60 s apart) when the API returns a valid HTTP
     response but 0 matching lines. PP typically doesn't post today's lines
     until mid-morning, so the early pipeline run may see a legitimately empty
     response that resolves on retry. HTTP errors are not retried.

@@ -215,10 +215,19 @@ def load_umpire_lookup():
 
 
 def load_latest_pitcher_state():
-    """One row per pitcher: their most recent tracked start (rolling features
-    snapshot, last game_date, last pitches, n_prior_starts)."""
+    """One row per pitcher: their most recent tracked start that has non-null
+    rolling stats (p_k_per9_10 is the sentinel column).
+
+    A pitcher's first-ever start produces a row with all null rolling stats
+    because there's no prior history to roll over. Using .last() blindly would
+    return that null row for any pitcher whose most recent entry is their debut,
+    causing all-dashes on the card. Filtering to non-null rows first means
+    pitchers with no valid stats at all are simply absent from the index and
+    get skipped cleanly in build_feature_rows().
+    """
     df = pd.read_parquet(PITCHER_PATH)
     df['game_date'] = pd.to_datetime(df['game_date'])
+    df = df[df['p_k_per9_10'].notna()]
     latest = df.sort_values(['game_date', 'game_pk']).groupby('pitcher').last()
     return latest
 
@@ -268,7 +277,7 @@ def build_feature_rows(sched, pitcher_state, opp_state, park_factors, weather,
     for _, g in sched.iterrows():
         pid = g['pitcher']
         if pid not in pitcher_state.index:
-            skipped.append(f"{g['pitcher_name']} ({g['team']}) -- no tracked starts yet")
+            skipped.append(f"{g['pitcher_name']} ({g['team']}) -- no rolling stats available")
             continue
 
         last = pitcher_state.loc[pid]
