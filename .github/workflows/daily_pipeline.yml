@@ -1,25 +1,25 @@
 name: Daily Pipeline
 
-# Runs five times per day during baseball season, to cover varied game start
-# times (day games, getaway-day afternoon games, evening games, and west
-# coast night games whose lineups aren't posted until much later), plus an
-# early-morning run that only logs the previous day's results.
+# Runs three times per day during baseball season: an early-morning run that
+# only logs the previous day's results, plus two full-pipeline runs spaced to
+# catch morning lineups/lines and the afternoon slate.
+#
+# Trimmed from 5 runs/day to 3 (2026-07-25) to cut GitHub Actions minutes usage
+# for this repo to under 600/month. Dropped the 11:00 AM ET and 5:00 PM ET
+# full-pipeline slots; day-game lineup swaps confirmed between 10am and 2pm ET
+# won't be picked up until the 2:00 PM ET run.
 #
 #   6:00 AM ET  (10:00 UTC) — log results ONLY (no new predictions)
 #  10:00 AM ET  (14:00 UTC) — full pipeline (log yesterday's results, then
 #                              generate today's projections; PP lines reliably
 #                              posted by this time)
-#  11:00 AM ET  (15:00 UTC) — full pipeline (day game lineups confirmed)
-#   2:00 PM ET  (18:00 UTC) — full pipeline (afternoon games)
-#   5:00 PM ET  (21:00 UTC) — full pipeline (evening games)
+#   2:00 PM ET  (18:00 UTC) — full pipeline (afternoon/evening games)
 
 on:
   schedule:
     - cron: '0 10 * * *'   #  6:00 AM ET (10:00 UTC) — log results ONLY
     - cron: '0 14 * * *'   # 10:00 AM ET (14:00 UTC) — full pipeline
-    - cron: '0 15 * * *'   # 11:00 AM ET (15:00 UTC) — full pipeline
     - cron: '0 18 * * *'   #  2:00 PM ET (18:00 UTC) — full pipeline
-    - cron: '0 21 * * *'   #  5:00 PM ET (21:00 UTC) — full pipeline
   workflow_dispatch:
     inputs:
       log_date:
@@ -60,8 +60,23 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      # Caches the fully-built virtualenv (not just pip's download cache) so a
+      # cache hit skips almost all install work, keyed on requirements.txt so
+      # any dependency change invalidates it automatically.
+      - name: Restore virtualenv cache
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.12-${{ hashFiles('requirements.txt') }}
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Add virtualenv to PATH
+        run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       # ── Statcast store cache ───────────────────────────────────────────────
       # The raw Statcast parquet (112 MB, gitignored) must persist between runs.

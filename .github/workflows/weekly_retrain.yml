@@ -30,8 +30,23 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      # Caches the fully-built virtualenv (not just pip's download cache) so a
+      # cache hit skips almost all install work, keyed on requirements.txt so
+      # any dependency change invalidates it automatically.
+      - name: Restore virtualenv cache
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.12-${{ hashFiles('requirements.txt') }}
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Add virtualenv to PATH
+        run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       # 1. Pull any newly completed Statcast pitching data and refresh
       #    this season's per-start pitcher game logs.
